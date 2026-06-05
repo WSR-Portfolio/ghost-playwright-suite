@@ -1,0 +1,35 @@
+{
+  "name": "ghost-playwright-suite",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "playwright test",
+    "test:api": "playwright test tests/api/",
+    "test:admin-ui": "playwright test tests/admin-ui/",
+    "test:member-ui": "playwright test tests/member-ui/",
+    "test:report": "playwright show-report"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WSR-Portfolio/ghost-playwright-suite.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/WSR-Portfolio/ghost-playwright-suite/issues"
+  },
+  "homepage": "https://github.com/WSR-Portfolio/ghost-playwright-suite#readme",
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^25.9.1",
+    "jsonwebtoken": "^9.0.3",
+    "typescript": "^6.0.3"
+  }
+}
