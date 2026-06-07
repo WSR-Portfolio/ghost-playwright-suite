@@ -135,3 +135,34 @@ This also makes the suite reproducible. Anyone running the suite against a diffe
 **Tradeoffs Acknowledged**
 
 Pinning means the instance does not automatically receive Ghost security patches or bug fixes. The tradeoff is accepted: this is a portfolio test environment with no real users or sensitive data. Security patches are relevant to production deployments. For this instance, API contract stability outweighs the risk of running an unpatched Ghost version.
+
+---
+
+## 7. Centralized Operation Timeouts Sized for the NAS
+
+**Context**
+
+The test target runs in Docker on a low-powered Synology NAS. Under sustained sequential load — late in a full suite run, after ten-plus minutes of continuous traffic — the Ghost container slows markedly. API calls that normally answer in under a second can take 15–25 seconds to respond before completing successfully. They are slow, not dead.
+
+An earlier configuration set Playwright's `actionTimeout` to 15 seconds. Because the built-in `request` fixture inherits `actionTimeout` as the default timeout for every API request, this 15-second ceiling governed not just UI actions but every Admin API and Mailpit call in the suite. When the NAS slowed under load, calls that would have succeeded at 18–20 seconds were cut off at 15. A single failed fixture call (e.g. `createTag`, `createMember`, or a Mailpit cleanup) would fail its test and, in the admin-UI suite, cascade: the foundational login test (AU-001) clears Mailpit before logging in, so a timed-out Mailpit `DELETE` left the shared `.auth/admin.json` session unrefreshed and every dependent admin-UI test failed in turn.
+
+Two earlier patches addressed symptoms rather than the cause: a `timeout: 30000` override was added to two fixture methods (`createPost`, `updatePost`) but not the dozen others, and `test.setTimeout(60000)` was scattered across six individual UI tests. The result was inconsistent coverage — exactly the gaps that produced the cascade. When the full suite was run on a freshly-idle NAS, the same tests passed; in isolation the admin-UI directory went 27/27 green. This confirmed the failures were environmental (cumulative load), not defects in the test or application code.
+
+**Decision**
+
+Set operation timeouts once, centrally, in `playwright.config.ts`, sized for the NAS under load:
+
+- `actionTimeout: 30000` — the single governing default for every UI action and every API request routed through the `request` fixture. All current and future requests inherit it automatically.
+- `timeout: 60000` (per-test) — sits comfortably above `actionTimeout` so that a single slow operation, including one in `beforeEach`/`beforeAll` setup (whose duration counts toward the per-test budget), cannot exhaust the whole-test allowance.
+
+The scattered per-call `timeout` overrides and per-test `setTimeout` stopgaps were removed in favour of this single source of truth.
+
+**Rationale**
+
+The failures were not caused by the timeout values being wrong in principle; they were caused by the values being applied inconsistently. Raising and consolidating the timeout at the one place that governs all operations fixes the whole class of failure at once — Admin API, Content API checks, and Mailpit alike — and guarantees that any method added later inherits the correct budget without a developer having to remember to set it. That is the precise failure mode that produced the original cascade, and centralization eliminates it structurally.
+
+This is the same reasoning already applied to `workers: 1` (Decision 5): a deliberate, documented accommodation of the test environment's hardware limits, not a design preference. Thirty seconds is generous for an API call, but on this hardware it is the difference between a reliable suite and one that flakes intermittently in ways that require knowledge of the NAS to interpret. A green suite that takes a little longer is more valuable as a portfolio artifact — and more honest — than a fast one that fails under its own load.
+
+**Tradeoffs Acknowledged**
+
+A higher `actionTimeout` means a genuinely hung operation waits 30 seconds rather than 15 before failing, and a hung test waits up to 60 seconds — slower feedback on a true outage. Raising `actionTimeout` also relaxes UI action timeouts (clicks, fills), which could mask a real front-end slowdown as merely-slow rather than broken. Both tradeoffs are accepted: on this hardware the dominant failure mode is transient slowness under load, not hard hangs, and erring toward letting slow-but-alive operations complete removes far more false failures than it hides. On capable hardware (a cloud runner or modern desktop) these timeouts would be set lower; like `workers: 1`, they are an explicit environmental accommodation rather than a universal default.
