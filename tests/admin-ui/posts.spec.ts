@@ -117,8 +117,11 @@ test.describe('Admin UI — Posts', () => {
       // It is the first searchbox in the post settings form (Authors has the second).
       const tagsInput = page.getByRole('searchbox').first();
       await tagsInput.fill('au-005-tag');
-      // Select from the dropdown suggestion if it appears, otherwise press Enter
-      const suggestion = page.getByRole('option', { name: /au-005-tag/i });
+      // Select from the dropdown suggestion if it appears, otherwise press Enter.
+      // Ghost allows multiple tags to share a name (uniqueness is by slug), so the
+      // suggestion dropdown can list more than one matching option. Scope to the first
+      // match to keep the locator deterministic — any one of them is a valid tag to apply.
+      const suggestion = page.getByRole('option', { name: /au-005-tag/i }).first();
       if (await suggestion.isVisible()) {
         await suggestion.click();
       } else {
@@ -303,14 +306,17 @@ test.describe('Admin UI — Posts', () => {
 
     // After publishing Ghost transitions back to editor; header shows "Update" (disabled) + "Unpublish"
     await expect(page.getByRole('button', { name: /update/i }).first()).toBeVisible();
-    // Wait for the publish request to fully commit before checking the Admin API.
-    // The "Update" button appearing is a UI signal; networkidle confirms the PUT reached the database.
-    await page.waitForLoadState('networkidle');
 
-    // Cross-layer: verify the Admin API also reflects the status change.
-    // This confirms the publish was persisted at the database layer, not just in UI state.
-    const updated = await adminApi.getPost(post.id);
-    expect(updated.status).toBe('published');
+    // Cross-layer: verify the Admin API also reflects the status change, confirming the
+    // publish was persisted at the database layer and not just in UI state.
+    // Poll rather than read once: on the loaded NAS the database write can lag a moment
+    // behind the UI confirmation, so a single immediate read races propagation (ADR §7).
+    await expect
+      .poll(async () => (await adminApi.getPost(post.id)).status, {
+        message: 'Admin API should report "published" once the write propagates',
+        timeout: 15000,
+      })
+      .toBe('published');
   });
 
   /**
@@ -335,12 +341,17 @@ test.describe('Admin UI — Posts', () => {
     // UI should now reflect draft state — the Publish button reappears.
     // Use exact: true to avoid matching "Unpublish" which also contains "Publish".
     await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
-    // Wait for the unpublish request to fully commit before checking the Admin API.
-    await page.waitForLoadState('networkidle');
 
-    // Cross-layer: confirm the Admin API reflects the revert to draft
-    const updated = await adminApi.getPost(post.id);
-    expect(updated.status).toBe('draft');
+    // Cross-layer: confirm the Admin API reflects the revert to draft.
+    // Poll rather than read once: the UI shows "Post reverted to a draft." before the
+    // database write is guaranteed visible to a follow-up API read on the loaded NAS,
+    // so a single immediate read races propagation (ADR §7).
+    await expect
+      .poll(async () => (await adminApi.getPost(post.id)).status, {
+        message: 'Admin API should report "draft" once the revert propagates',
+        timeout: 15000,
+      })
+      .toBe('draft');
   });
 
   /**
