@@ -194,3 +194,35 @@ The session cache already eliminates the lockdown risk for the common case (loca
 **Tradeoffs Acknowledged**
 
 The 30-minute cadence rule constrains how quickly CI feedback can be obtained after a fix — a developer who pushes a follow-up commit within half an hour of a previous run may trip the lockdown rather than get a clean result. This is accepted for a portfolio project where CI runs are infrequent and deliberate. A higher-throughput pipeline with frequent merges would need a different approach — for example, a dedicated CI admin account whose browser/IP is pre-trusted so it bypasses the 2FA step entirely, or a Ghost configuration that exempts the runner from the verification requirement. Neither is justified at this project's run frequency.
+
+---
+
+## 9. Member Sign-In Rate Limiter and Self-Skipping Registration Test
+
+**Context**
+
+Ghost applies an IP-level rate limiter to member authentication, distinct from the admin 2FA lockdown in Decision 8. When too many member sign-in or sign-up attempts originate from the same IP in a short window, Ghost rejects further attempts with a "too many different sign-in attempts" error rather than sending the email. This protects the member portal from email-bombing and credential-probing abuse.
+
+Several member tests trigger an email-sending action per run, all from the same runner IP:
+
+- **MU-001** submits a new signup (sends a confirmation/magic link).
+- **MU-003** submits a duplicate-email signup (Ghost responds by sending a sign-in link).
+- **MU-004** requests a magic link to complete the full authentication flow.
+
+A single suite run stays under the limit comfortably. The exposure, as with the admin 2FA lockdown, is **repeated full runs in quick succession**: across several back-to-back runs the cumulative member email actions from one IP can trip the limiter. When that happens, Ghost replaces the portal's submit button with a "Retry" button and never advances to the confirmation screen.
+
+**Decision**
+
+MU-001 detects the rate-limited state and **skips itself cleanly rather than failing** (`tests/member-ui/registration.spec.ts`). After submitting the form it waits briefly for a "Retry" button; if that button appears, it reads the portal notification text and calls `test.skip()` with that message instead of waiting out a 15-second timeout on a confirmation screen that will never appear.
+
+Operationally, the same cadence guidance as Decision 8 applies: **space out repeated full runs**. Local back-to-back runs during active development will eventually trip the member limiter even though they reuse the admin session; when that happens the registration test skips, which is expected, not a defect.
+
+**Rationale**
+
+A rate-limited signup is an environmental condition, not a product defect or a test bug — the application is behaving correctly by refusing the request. Failing the test in that situation would produce a false red that tells the reader nothing about MU-001's actual subject (that a valid signup is accepted and shows a confirmation). A clean skip carrying Ghost's own notification text communicates precisely what happened and why, and keeps the suite result honest: a skip is visible and explained, whereas a forced pass would hide the condition and a failure would misattribute it.
+
+This mirrors the philosophy applied throughout the suite (Decisions 5, 7, and 8): distinguish genuine application regressions from environmental limits of the test target, and handle the latter explicitly and transparently rather than letting them masquerade as the former.
+
+**Tradeoffs Acknowledged**
+
+A self-skipping test provides no positive signal on the run where it skips — if MU-001 silently skipped on every run, the signup flow would effectively be untested while still appearing green. This is accepted because the skip is the exception, not the norm: a single run, or runs spaced sensibly apart, exercises MU-001 fully. The skip reason is surfaced in the report so a reviewer can see it fired and why. If MU-001 began skipping persistently, that would itself be the signal to investigate — either the runner IP is hitting the limiter chronically (pointing to run cadence) or Ghost's limiter configuration has changed. A higher-throughput setup would address this the same way as the admin case: a dedicated, pre-trusted member-testing path or a limiter exemption for the runner IP, neither justified at this project's run frequency.
