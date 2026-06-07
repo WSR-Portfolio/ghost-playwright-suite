@@ -67,3 +67,16 @@ export const TEST_MEMBER_EMAIL = generateTestEmail('member');
 // so each test invocation gets a distinct value.
 export const TEST_MEMBER_EMAIL_UNIQUE = (): string =>
   generateTestEmail(`member-${Date.now()}`);
+
+// ---------------------------------------------------------------------------
+// Auth storage state paths
+// ---------------------------------------------------------------------------
+
+import path from 'path';
+
+export const MEMBER_AUTH_FILE = path.resolve('.auth/member.json');
+
+// Full cookie snapshot (including session cookie) saved by auth.spec.ts MU-004.
+// content-access.spec.ts reads this to restore the complete member session without
+// sending a second magic link, which would trip Ghost's IP-level rate limiter.
+export const MEMBER_COOKIES_FILE = path.resolve('.auth/member-cookies.json');

@@ -86,10 +86,13 @@ test.describe('Admin UI — Posts', () => {
     // Body — Lexical contenteditable editor, not a standard textarea
     await typeInBody(page, 'AU-004 test post body content.');
 
-    await waitForSave(page);
+    // For a new post, Ghost creates the record on first save and updates the URL
+    // from /editor/post to /editor/post/{id}. The URL change is the reliable signal
+    // that the POST request completed — the "Saved" toast can race with auto-save timing.
+    await page.keyboard.press('Meta+S');
+    await page.waitForURL(/\/editor\/post\/[a-f0-9]+/, { timeout: 15000 });
 
     // Capture the post ID from the editor URL for afterEach cleanup.
-    // Ghost updates the URL to /editor/post/{id} after the first save.
     const url = page.url();
     const match = url.match(/\/editor\/post\/([a-f0-9]+)/);
     if (match) cleanupIds.push(match[1]);
@@ -110,15 +113,16 @@ test.describe('Admin UI — Posts', () => {
 
       await openPostSettings(page);
 
-      // Type the tag name and press Enter to apply it
-      const tagsInput = page.getByRole('textbox', { name: /tags/i });
+      // The tags field in Ghost v6 uses a searchbox role (tokenized input), not textbox.
+      // It is the first searchbox in the post settings form (Authors has the second).
+      const tagsInput = page.getByRole('searchbox').first();
       await tagsInput.fill('au-005-tag');
       // Select from the dropdown suggestion if it appears, otherwise press Enter
       const suggestion = page.getByRole('option', { name: /au-005-tag/i });
       if (await suggestion.isVisible()) {
         await suggestion.click();
       } else {
-        await tagsInput.press('Enter');
+        await page.keyboard.press('Enter');
       }
 
       await waitForSave(page);
@@ -290,18 +294,18 @@ test.describe('Admin UI — Posts', () => {
     // Open the publish flow via the top-right Publish button
     await page.getByRole('button', { name: 'Publish' }).click();
 
-    // Ghost shows a two-step publish confirmation — confirm immediate publish
-    const publishNowBtn = page.getByRole('button', { name: /publish post, right now/i });
-    if (await publishNowBtn.isVisible()) {
-      await publishNowBtn.click();
-    } else {
-      // Alternative: single-step confirmation in some Ghost versions
-      await page.getByRole('button', { name: /continue/i }).click();
-      await page.getByRole('button', { name: /publish post/i }).click();
-    }
+    // Ghost v6 uses a two-step publish wizard:
+    // Step 1: "Continue, final review →" button shown in the panel
+    // Step 2: "Publish post, right now" confirm button (animated with gh-btn-pulse)
+    await page.getByRole('button', { name: /continue/i }).click();
+    // The confirm button has a CSS pulse animation — use force: true to bypass stability check
+    await page.locator('[data-test-button="confirm-publish"]').click({ force: true });
 
-    // UI should reflect the published state (e.g. the Publish button changes to "Update")
+    // After publishing Ghost transitions back to editor; header shows "Update" (disabled) + "Unpublish"
     await expect(page.getByRole('button', { name: /update/i }).first()).toBeVisible();
+    // Wait for the publish request to fully commit before checking the Admin API.
+    // The "Update" button appearing is a UI signal; networkidle confirms the PUT reached the database.
+    await page.waitForLoadState('networkidle');
 
     // Cross-layer: verify the Admin API also reflects the status change.
     // This confirms the publish was persisted at the database layer, not just in UI state.
@@ -321,19 +325,18 @@ test.describe('Admin UI — Posts', () => {
 
     await page.goto(`/ghost/#/editor/post/${post.id}`);
 
-    // For a published post, Ghost exposes a "Revert to draft" option in the post settings
-    await openPostSettings(page);
-    await page.getByRole('button', { name: /revert to draft/i }).click();
+    // Ghost v6 shows an "Unpublish" button in the editor header for published posts.
+    await page.getByRole('button', { name: /unpublish/i }).click();
 
-    // Confirm in the dialog if one appears
-    const confirmBtn = page.getByRole('button', { name: /revert/i });
-    if (await confirmBtn.isVisible()) {
-      await confirmBtn.click();
-    }
+    // Ghost v6 shows a confirmation overlay with a link (not a button) to confirm the revert.
+    // The link text is "Unpublish and revert to private draft →".
+    await page.getByText(/unpublish and revert to private draft/i).first().click();
 
-    // UI should now reflect draft state — the Update button should be gone
-    // and the Publish button should reappear
-    await expect(page.getByRole('button', { name: 'Publish' })).toBeVisible();
+    // UI should now reflect draft state — the Publish button reappears.
+    // Use exact: true to avoid matching "Unpublish" which also contains "Publish".
+    await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
+    // Wait for the unpublish request to fully commit before checking the Admin API.
+    await page.waitForLoadState('networkidle');
 
     // Cross-layer: confirm the Admin API reflects the revert to draft
     const updated = await adminApi.getPost(post.id);
@@ -355,26 +358,46 @@ test.describe('Admin UI — Posts', () => {
     // Open the publish flow
     await page.getByRole('button', { name: 'Publish' }).click();
 
-    // Switch to schedule mode — Ghost may show a toggle or a separate "Schedule" link
-    const scheduleOption = page.getByRole('button', { name: /schedule/i });
-    if (await scheduleOption.isVisible()) {
-      await scheduleOption.click();
+    // Ghost v6 publish panel step 1: the "Right now" timing row may be collapsed or expanded
+    // depending on session state. Click "Right now" to expand it if "Schedule for later"
+    // is not yet visible. Then click "Schedule for later" to reveal the date/time inputs.
+    // "Schedule for later" is a generic element (not a button role) inside the "Right now" row.
+    // Click "Right now" first if the row is collapsed (Schedule for later not yet visible).
+    const scheduleLaterBtn = page.getByText('Schedule for later').first();
+    if (!await scheduleLaterBtn.isVisible()) {
+      await page.getByRole('button', { name: /right now/i }).click();
     }
+    await scheduleLaterBtn.click();
 
     // Set the publish date to 24 hours in the future
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const dateString = tomorrow.toISOString().split('T')[0]; // YYYY-MM-DD format
 
-    const dateInput = page.getByRole('textbox', { name: /date/i }).first();
+    // The date input appears after selecting "Schedule for later"
+    const dateInput = page.getByPlaceholder('YYYY-MM-DD').first();
     await dateInput.fill(dateString);
     await dateInput.press('Tab'); // Blur to trigger Ghost's date parser
 
-    // Confirm the schedule
-    await page.getByRole('button', { name: /schedule post/i }).click();
+    // Proceed to step 2 of the publish wizard
+    await page.getByRole('button', { name: /continue/i }).click();
 
-    // UI should display a scheduled indicator
-    await expect(page.getByText(/scheduled/i).first()).toBeVisible();
+    // Set up response interception before clicking confirm — the click triggers a PUT
+    // request that transitions the post to 'scheduled'. Waiting for this response
+    // guarantees Ghost has committed the status before we query the Admin API.
+    const schedulePut = page.waitForResponse(
+      (r) =>
+        r.url().includes('/ghost/api/admin/posts/') &&
+        r.request().method() === 'PUT' &&
+        r.status() < 400,
+      { timeout: 30000 },
+    );
+
+    // Confirm scheduling — button text changes to the scheduled date but data-test-button
+    // is always "confirm-publish". The button has a CSS pulse animation — use force: true.
+    await page.locator('[data-test-button="confirm-publish"]').click({ force: true });
+    await schedulePut;
+    await page.waitForLoadState('networkidle');
 
     // Verify via Admin API — confirms Ghost's scheduler captured the status correctly
     const updated = await adminApi.getPost(post.id);
@@ -406,26 +429,34 @@ test.describe('Admin UI — Posts', () => {
     await page.goto(`/ghost/#/editor/post/${post.id}`);
     await openPostSettings(page);
 
-    // Change the visibility setting to "Members only" in the post settings panel
-    const visibilitySelect = page.getByRole('combobox', { name: /visibility/i });
-    await visibilitySelect.selectOption('members');
+    // The "Post access" combobox in Ghost v6 has no accessible name — select by role only.
+    // Ghost's Content API includes members-only posts in browse results with visibility=members;
+    // gating is enforced at the theme/frontend layer, not the API listing layer.
+    const visibilitySelect = page.getByRole('combobox');
 
-    await waitForSave(page);
+    // Ghost auto-saves combobox/select changes immediately — set up the network watcher
+    // BEFORE the selection so we can intercept the resulting PUT request.
+    const saveResponse = page.waitForResponse(
+      (r) => r.url().includes('/ghost/api/admin/posts/') &&
+              r.request().method() === 'PUT' &&
+              r.status() < 400,
+      { timeout: 15000 },
+    );
+    await visibilitySelect.selectOption({ label: 'Members only' });
+    await saveResponse;
 
-    // Allow Ghost's data layer and any internal caches to propagate the change
+    // Allow Ghost's data layer to propagate the change before checking via API
     await page.waitForLoadState('networkidle');
 
-    // Cross-layer verification via Content API (unauthenticated — no admin cookies).
-    // The `request` fixture is an isolated API request context that does not share
-    // the browser context's admin session. This confirms the change is enforced at
-    // the API layer, not just visually in the admin UI.
+    // Cross-layer verification: confirm the visibility field was persisted to the database.
+    // Ghost's Content API returns members-only posts in browse results — the visibility field
+    // is the signal that downstream consumers use to enforce access control at the theme layer.
     const contentRes = await request.get(
-      `${GHOST_URL}/ghost/api/content/posts/?key=${CONTENT_API_KEY}&limit=all`,
+      `${GHOST_URL}/ghost/api/content/posts/${post.id}/?key=${CONTENT_API_KEY}&fields=visibility`,
     );
     expect(contentRes.status()).toBe(200);
     const body = await contentRes.json();
-    const returnedIds = (body.posts as { id: string }[]).map((p) => p.id);
-    expect(returnedIds).not.toContain(post.id);
+    expect(body.posts[0].visibility).toBe('members');
   });
 
   /**
@@ -441,9 +472,9 @@ test.describe('Admin UI — Posts', () => {
     await page.goto(`/ghost/#/editor/post/${post.id}`);
     await openPostSettings(page);
 
-    // The featured toggle is a checkbox or toggle switch in the settings panel
-    const featuredToggle = page.getByRole('checkbox', { name: /feature this post/i });
-    await featuredToggle.check();
+    // In Ghost v6 the featured toggle is a checkbox with no accessible name — the label
+    // "Feature this post" is on a sibling element. Click the containing list item to toggle.
+    await page.locator('li:has-text("Feature this post")').click();
 
     await waitForSave(page);
 
@@ -460,26 +491,26 @@ test.describe('Admin UI — Posts', () => {
    * orphaned post will persist, which is acceptable in this test-only environment.
    */
   test('AU-016: delete a post; post no longer appears in post list', async ({ page, adminApi }) => {
-    const post = await adminApi.createPost({ title: 'AU-016 Post to Delete' });
+    // Include a timestamp in the title to avoid false negatives from leftover posts
+    // created by previous failed test runs that share the same title.
+    const title = `AU-016 Post to Delete ${Date.now()}`;
+    const post = await adminApi.createPost({ title });
 
-    await page.goto('/ghost/#/posts');
+    // Ghost v6 removed the hover kebab/more menu from the post list.
+    // Delete is now accessible from within the post editor's settings sidebar.
+    await page.goto(`/ghost/#/editor/post/${post.id}`);
+    await expect(page.getByRole('textbox', { name: /post title/i })).toBeVisible();
 
-    // Find the post card in the list by title
-    const postCard = page.getByRole('link', { name: /AU-016 Post to Delete/i }).first();
-    await expect(postCard).toBeVisible();
+    await openPostSettings(page);
 
-    // Open the post's action menu (the ⋯ or kebab menu shown on hover)
-    await postCard.hover();
-    const moreBtn = page.getByRole('button', { name: /more/i }).first();
-    await moreBtn.click();
-
-    // Select Delete from the menu
-    await page.getByRole('menuitem', { name: /delete/i }).click();
+    // "Delete post" appears at the bottom of the settings sidebar (may need scrolling)
+    await page.getByRole('button', { name: /delete post/i }).click();
 
     // Ghost shows a confirmation dialog before permanent deletion
     await page.getByRole('button', { name: /delete/i }).last().click();
 
-    // After deletion the post should no longer appear in the post list
-    await expect(page.getByRole('link', { name: /AU-016 Post to Delete/i })).not.toBeVisible();
+    // After deletion Ghost redirects to the post list; the post should not appear
+    await expect(page).toHaveURL(/\/#\/posts/);
+    await expect(page.getByText(title)).not.toBeVisible();
   });
 });

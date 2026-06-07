@@ -35,6 +35,8 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
 
+  globalTeardown: './tests/global-teardown',
+
   projects: [
     {
       name: 'chromium',

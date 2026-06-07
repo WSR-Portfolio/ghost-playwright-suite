@@ -30,14 +30,15 @@ test.describe('Admin UI — Tags', () => {
     await page.goto('/ghost/#/tags/new');
     await expect(page).toHaveURL(/\/#\/tags\/new/);
 
-    await page.getByRole('textbox', { name: /tag name/i }).fill('au-020-ui-tag');
+    // Ghost v6 labels the tag name field "Name" (not "Tag name")
+    await page.getByRole('textbox', { name: 'Name' }).fill('au-020-ui-tag');
     await page.getByRole('textbox', { name: /description/i }).fill('Created by AU-020 Playwright test');
 
     await page.getByRole('button', { name: /save/i }).click();
 
     // Ghost redirects to the tag's edit page after a successful save
     await expect(page).toHaveURL(/hash-au-020-ui-tag|au-020-ui-tag/);
-    await expect(page.getByRole('textbox', { name: /tag name/i })).toHaveValue('au-020-ui-tag');
+    await expect(page.getByRole('textbox', { name: 'Name' })).toHaveValue('au-020-ui-tag');
 
     // Look up the tag via Admin API to get its ID for cleanup
     const res = await request.get(`${GHOST_URL}/ghost/api/admin/tags/slug/au-020-ui-tag/`, {
@@ -65,7 +66,8 @@ test.describe('Admin UI — Tags', () => {
   test('AU-021: create an internal tag with # prefix; slug normalized to hash-', async ({ page, request }) => {
     await page.goto('/ghost/#/tags/new');
 
-    await page.getByRole('textbox', { name: /tag name/i }).fill('#qa-internal');
+    // Ghost v6 labels the tag name field "Name" (not "Tag name")
+    await page.getByRole('textbox', { name: 'Name' }).fill('#qa-internal');
 
     await page.getByRole('button', { name: /save/i }).click();
 
@@ -92,12 +94,17 @@ test.describe('Admin UI — Tags', () => {
     cleanupIds.push(tag.id);
 
     await page.goto(`/ghost/#/tags/${tag.slug}`);
+    // Wait for the tag edit form to finish rendering before interacting with it
+    await expect(page.getByRole('textbox', { name: 'Name' })).toBeVisible();
 
     const descInput = page.getByRole('textbox', { name: /description/i });
     await descInput.clear();
     await descInput.fill('AU-022 updated description');
 
     await page.getByRole('button', { name: /save/i }).click();
+    // Wait for save confirmation before reloading — without this, the reload races
+    // against Ghost's write and the original value is returned from the database.
+    await expect(page.getByText(/saved/i).first()).toBeVisible();
 
     // Reload to confirm the description was written to the database, not just held in state
     await page.reload();

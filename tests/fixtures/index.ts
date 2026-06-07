@@ -22,6 +22,8 @@ export {
   TEST_MEMBER_NAME,
   TEST_MEMBER_EMAIL,
   TEST_MEMBER_EMAIL_UNIQUE,
+  MEMBER_AUTH_FILE,
+  MEMBER_COOKIES_FILE,
 } from './test-data';
 export type { GhostPost, GhostPage, GhostTag, GhostMember, AdminApiHelper } from './admin-api.fixture';
 export type { MailpitHelper, MailpitMessage } from './mailpit.fixture';

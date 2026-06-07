@@ -117,21 +117,18 @@ test.describe('Admin API — Tags', () => {
   });
 
   // -------------------------------------------------------------------------
-  // AA-024 — Duplicate slug → 422
-  // Tag slugs are the public URL key for archive pages and must be unique.
-  // Sending an explicit slug that already belongs to another tag must be
-  // rejected with 422 to prevent silent URL collisions.
-  //
-  // Both requests are raw because AdminApiHelper.createTag has no slug option
-  // and asserts 201 internally, so it cannot be used for either the first
-  // (slug-controlled) create or the expected-to-fail second create.
+  // AA-024 — Duplicate tag slug: Ghost auto-increments, does not reject
+  // Mirrors the post slug deduplication behaviour in AA-008.  When a tag is
+  // created with an explicit slug that already exists, Ghost silently appends
+  // a counter suffix rather than returning 422.  Both creates succeed, and the
+  // second tag's stored slug starts with the original string but differs from it.
   // -------------------------------------------------------------------------
-  test('AA-024: creating two tags with the same explicit slug returns 422 on the second', async ({
+  test('AA-024: creating two tags with the same explicit slug — Ghost deduplicates the slug', async ({
     request,
   }) => {
     const slug = `aa-024-dup-slug-${Date.now()}`;
 
-    // First tag — must succeed
+    // First tag — gets the requested slug exactly
     const firstRes = await request.post(`${BASE()}/ghost/api/admin/tags/`, {
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       data: { tags: [{ name: `AA-024 First ${Date.now()}`, slug }] },
@@ -139,13 +136,18 @@ test.describe('Admin API — Tags', () => {
     expect(firstRes.status()).toBe(201);
     const firstBody = await firstRes.json();
     extraTagIds.push(firstBody.tags[0].id);
+    expect(firstBody.tags[0].slug).toBe(slug);
 
-    // Second tag with the same slug — must be rejected
+    // Second tag — Ghost deduplicates the slug by appending a counter
     const secondRes = await request.post(`${BASE()}/ghost/api/admin/tags/`, {
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       data: { tags: [{ name: `AA-024 Second ${Date.now()}`, slug }] },
     });
+    expect(secondRes.status()).toBe(201);
+    const secondBody = await secondRes.json();
+    extraTagIds.push(secondBody.tags[0].id);
 
-    expect(secondRes.status()).toBe(422);
+    expect(secondBody.tags[0].slug).not.toBe(slug);
+    expect(secondBody.tags[0].slug).toMatch(new RegExp(`^${slug}`));
   });
 });

@@ -118,6 +118,8 @@ export class AdminApiHelper {
     tags?: string[];
     featured?: boolean;
     publishedAt?: string;
+    html?: string;
+    lexical?: string;
   }): Promise<GhostPost> {
     const payload: Record<string, unknown> = {
       title: options.title,
@@ -127,10 +129,15 @@ export class AdminApiHelper {
     if (options.featured !== undefined) payload.featured = options.featured;
     if (options.publishedAt) payload.published_at = options.publishedAt;
     if (options.tags) payload.tags = options.tags.map((name) => ({ name }));
+    if (options.html) payload.html = options.html;
+    if (options.lexical) payload.lexical = options.lexical;
 
+    // 30s timeout — Ghost on the NAS can be slow to respond under load; 15s
+    // (the actionTimeout default) is not enough when the server is warming up
     const res = await this.request.post(`${this.baseUrl}/ghost/api/admin/posts/`, {
       headers: this.headers,
       data: { posts: [payload] },
+      timeout: 30_000,
     });
     expect(res.status(), `createPost "${options.title}"`).toBe(201);
     const body = await res.json();
@@ -149,6 +156,7 @@ export class AdminApiHelper {
     const res = await this.request.put(`${this.baseUrl}/ghost/api/admin/posts/${id}/`, {
       headers: this.headers,
       data: { posts: [options] },
+      timeout: 30_000,
     });
     expect(res.status(), `updatePost ${id}`).toBe(200);
     const body = await res.json();
@@ -159,8 +167,14 @@ export class AdminApiHelper {
     const res = await this.request.delete(`${this.baseUrl}/ghost/api/admin/posts/${id}/`, {
       headers: this.headers,
     });
-    // 204 = deleted; 404 = already gone — both are acceptable in teardown
+    // 204 = deleted; 404 = already gone — both are acceptable in teardown.
+    // 5xx = Ghost is transiently unavailable; warn and continue rather than
+    // failing the test for a teardown that is best-effort anyway.
     if (res.status() !== 204 && res.status() !== 404) {
+      if (res.status() >= 500) {
+        console.warn(`deletePost ${id} returned HTTP ${res.status()} — skipping teardown cleanup`);
+        return;
+      }
       throw new Error(`deletePost ${id} failed: HTTP ${res.status()}`);
     }
   }
@@ -191,6 +205,10 @@ export class AdminApiHelper {
       headers: this.headers,
     });
     if (res.status() !== 204 && res.status() !== 404) {
+      if (res.status() >= 500) {
+        console.warn(`deletePage ${id} returned HTTP ${res.status()} — skipping teardown cleanup`);
+        return;
+      }
       throw new Error(`deletePage ${id} failed: HTTP ${res.status()}`);
     }
   }
@@ -212,6 +230,10 @@ export class AdminApiHelper {
       headers: this.headers,
     });
     if (res.status() !== 204 && res.status() !== 404) {
+      if (res.status() >= 500) {
+        console.warn(`deleteTag ${id} returned HTTP ${res.status()} — skipping teardown cleanup`);
+        return;
+      }
       throw new Error(`deleteTag ${id} failed: HTTP ${res.status()}`);
     }
   }
@@ -233,6 +255,10 @@ export class AdminApiHelper {
       headers: this.headers,
     });
     if (res.status() !== 204 && res.status() !== 404) {
+      if (res.status() >= 500) {
+        console.warn(`deleteMember ${id} returned HTTP ${res.status()} — skipping teardown cleanup`);
+        return;
+      }
       throw new Error(`deleteMember ${id} failed: HTTP ${res.status()}`);
     }
   }
