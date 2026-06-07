@@ -38,7 +38,6 @@ test.describe('Admin UI — Pages', () => {
    * /ghost/#/editor/page and are served at standalone URLs outside the post feed.
    */
   test('AU-017: create a new page', async ({ page }) => {
-    test.setTimeout(60_000);
     await page.goto('/ghost/#/editor/page');
     await expect(page).toHaveURL(/\/editor\/page/);
 
@@ -68,7 +67,6 @@ test.describe('Admin UI — Pages', () => {
    * from the database — confirming the edit was persisted, not just held in memory.
    */
   test('AU-018: edit a page; changes persist after navigating away', async ({ page, adminApi }) => {
-    test.setTimeout(60_000);
     const ghostPage = await adminApi.createPage({ title: 'AU-018 Original Page Title' });
     cleanupIds.push(ghostPage.id);
 
@@ -92,7 +90,6 @@ test.describe('Admin UI — Pages', () => {
    * AU-019: Delete a page via the admin UI and confirm it no longer appears in the page list.
    */
   test('AU-019: delete a page; page no longer appears in page list', async ({ page, adminApi }) => {
-    test.setTimeout(60_000);
     // Include a timestamp to avoid strict mode violations from leftover pages
     // created by previous failed test runs that share the same title.
     const pageTitle = `AU-019 Page to Delete ${Date.now()}`;

@@ -23,8 +23,16 @@ export default defineConfig({
   use: {
     baseURL: process.env.GHOST_URL,
 
-    // Ghost admin panel is React — give it time to settle on slow connections
-    actionTimeout: 15_000,
+    // actionTimeout is the single governing default for every operation routed
+    // through Playwright — both UI actions (click/fill) and API requests made via
+    // the `request` fixture (Admin API + Mailpit helpers). The test target is a
+    // low-powered NAS that degrades under sustained sequential load: late in a full
+    // run, individual API calls that normally answer in <1s can take 15–25s before
+    // responding. 30s lets those slow-but-alive calls succeed instead of tripping a
+    // timeout and cascading. See docs/decisions.md §7 for the full rationale.
+    // This replaces scattered per-call timeout overrides — one source of truth so
+    // every current and future request inherits the correct budget automatically.
+    actionTimeout: 30_000,
     navigationTimeout: 30_000,
 
     trace: 'on-first-retry',
@@ -32,7 +40,10 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
 
-  timeout: 30_000,
+  // Per-test budget sits comfortably above actionTimeout so a single slow operation
+  // (including one in beforeEach/beforeAll setup, which counts toward this budget)
+  // does not exhaust the whole-test allowance. See docs/decisions.md §7.
+  timeout: 60_000,
   expect: { timeout: 10_000 },
 
   globalTeardown: './tests/global-teardown',

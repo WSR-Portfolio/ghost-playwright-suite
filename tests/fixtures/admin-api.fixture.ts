@@ -132,12 +132,11 @@ export class AdminApiHelper {
     if (options.html) payload.html = options.html;
     if (options.lexical) payload.lexical = options.lexical;
 
-    // 30s timeout — Ghost on the NAS can be slow to respond under load; 15s
-    // (the actionTimeout default) is not enough when the server is warming up
+    // Timeout is governed centrally by actionTimeout in playwright.config.ts (30s),
+    // sized for the NAS under load. See docs/decisions.md §7.
     const res = await this.request.post(`${this.baseUrl}/ghost/api/admin/posts/`, {
       headers: this.headers,
       data: { posts: [payload] },
-      timeout: 30_000,
     });
     expect(res.status(), `createPost "${options.title}"`).toBe(201);
     const body = await res.json();
@@ -156,7 +155,6 @@ export class AdminApiHelper {
     const res = await this.request.put(`${this.baseUrl}/ghost/api/admin/posts/${id}/`, {
       headers: this.headers,
       data: { posts: [options] },
-      timeout: 30_000,
     });
     expect(res.status(), `updatePost ${id}`).toBe(200);
     const body = await res.json();
