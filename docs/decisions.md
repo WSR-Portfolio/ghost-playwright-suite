@@ -148,6 +148,8 @@ An earlier configuration set Playwright's `actionTimeout` to 15 seconds. Because
 
 Two earlier patches addressed symptoms rather than the cause: a `timeout: 30000` override was added to two fixture methods (`createPost`, `updatePost`) but not the dozen others, and `test.setTimeout(60000)` was scattered across six individual UI tests. The result was inconsistent coverage — exactly the gaps that produced the cascade. When the full suite was run on a freshly-idle NAS, the same tests passed; in isolation the admin-UI directory went 27/27 green. This confirmed the failures were environmental (cumulative load), not defects in the test or application code.
 
+Independent infrastructure monitoring corroborated the diagnosis. During the failing run, Uptime Kuma recorded several *other* containers on the NAS becoming unreachable at the same time — the slowdown was system-wide resource contention, not something specific to Ghost or the tests. On the two clean runs after the fix, Uptime Kuma stayed green throughout, consistent with the larger timeouts giving slow-but-alive responses enough runway to complete instead of cascading into failures.
+
 **Decision**
 
 Set operation timeouts once, centrally, in `playwright.config.ts`, sized for the NAS under load:
