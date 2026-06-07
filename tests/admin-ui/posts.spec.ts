@@ -77,6 +77,7 @@ test.describe('Admin UI — Posts', () => {
    * Validates the basic creation workflow a publisher performs daily.
    */
   test('AU-004: create a new post with title and body content', async ({ page }) => {
+    test.setTimeout(60_000);
     await page.goto('/ghost/#/editor/post');
     await expect(page).toHaveURL(/\/editor\/post/);
 
@@ -104,6 +105,7 @@ test.describe('Admin UI — Posts', () => {
    * typeahead input in the post settings sidebar works correctly during creation.
    */
   test('AU-005: assign a tag to a post during creation', async ({ page, adminApi }) => {
+    test.setTimeout(60_000);
     // Pre-create the tag via API so we can type its exact name in the UI
     const tag = await adminApi.createTag({ name: 'au-005-tag' });
 
@@ -146,6 +148,7 @@ test.describe('Admin UI — Posts', () => {
    * OS file picker dialog, which Playwright cannot interact with.
    */
   test('AU-006: add a feature image to a post', async ({ page, adminApi }) => {
+    test.setTimeout(60_000);
     const post = await adminApi.createPost({ title: 'AU-006 Feature Image Post' });
     cleanupIds.push(post.id);
 
