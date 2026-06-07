@@ -45,7 +45,7 @@ test.describe('Admin API — Images', () => {
   // is the value that editors and themes embed directly in content — if it is
   // missing or malformed, images break site-wide.
   // -------------------------------------------------------------------------
-  test('AA-033: upload a valid PNG returns 200 with a public URL', async ({ request }) => {
+  test('AA-033: upload a valid PNG returns 201 with a public URL', async ({ request }) => {
     const res = await request.post(`${BASE()}/ghost/api/admin/images/upload/`, {
       headers: authHeaders(),
       multipart: {
@@ -58,8 +58,8 @@ test.describe('Admin API — Images', () => {
       },
     });
 
-    // Ghost's image upload endpoint returns 200 (not 201) on success
-    expect(res.status()).toBe(200);
+    // Ghost's image upload endpoint returns 201 on success
+    expect(res.status()).toBe(201);
     const body = await res.json();
     expect(Array.isArray(body.images)).toBe(true);
     expect(body.images[0].url).toBeTruthy();

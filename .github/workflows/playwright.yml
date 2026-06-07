@@ -1,0 +1,73 @@
+# CI/CD — Playwright Test Suite
+#
+# SELF-HOSTED RUNNER RATIONALE
+# -----------------------------
+# This workflow runs on a self-hosted runner deployed as a Docker container on
+# the same Synology NAS that hosts the Ghost test target.
+#
+# Why not a GitHub-hosted runner?
+# The Member UI persona tests (MU-004 through MU-010) require access to
+# Mailpit, a local SMTP intercept service that captures Ghost magic link emails.
+# Mailpit runs on the NAS LAN and is intentionally not exposed to the public
+# internet — magic link tokens are single-use authentication credentials and
+# should not transit public infrastructure.
+#
+# Connecting a GitHub-hosted runner to the LAN via Tailscale was evaluated and
+# rejected. Introducing an ephemeral external device into the tailnet — even a
+# scoped, ACL-restricted one — creates an attack surface that is not justified
+# for a portfolio project with no real user data at stake. The self-hosted
+# runner eliminates that surface entirely.
+#
+# How authenticity is preserved:
+# The runner does not take shortcuts by hitting Ghost over the local network.
+# All Playwright tests target https://ghost.wsrportfolio.dev exclusively —
+# every request travels through the Cloudflare Tunnel exactly as it would from
+# any external client. The only local network call made during a test run is
+# the Mailpit API request to retrieve magic link emails, which is testing
+# infrastructure, not the application under test.
+
+name: Playwright Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          GHOST_URL: ${{ secrets.GHOST_URL }}
+          GHOST_ADMIN_API_KEY: ${{ secrets.GHOST_ADMIN_API_KEY }}
+          GHOST_CONTENT_API_KEY: ${{ secrets.GHOST_CONTENT_API_KEY }}
+          GHOST_ADMIN_EMAIL: ${{ secrets.GHOST_ADMIN_EMAIL }}
+          GHOST_ADMIN_PASSWORD: ${{ secrets.GHOST_ADMIN_PASSWORD }}
+          MAILPIT_URL: ${{ secrets.MAILPIT_URL }}
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30

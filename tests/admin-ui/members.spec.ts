@@ -63,27 +63,32 @@ test.describe('Admin UI — Members', () => {
    */
   test('AU-026: delete a member via admin UI', async ({ page, adminApi }) => {
     const email = generateTestEmail(`au-026-${Date.now()}`);
-    await adminApi.createMember({ name: 'AU-026 Member to Delete', email });
+    const member = await adminApi.createMember({ name: 'AU-026 Member to Delete', email });
     // Not tracked in cleanupIds — the UI deletion is the assertion
 
-    await page.goto('/ghost/#/members');
-
-    // Find the member in the list by email and navigate to their detail page
-    const memberRow = page.getByRole('link', { name: new RegExp(email, 'i') }).first();
-    await expect(memberRow).toBeVisible();
-    await memberRow.click();
+    // In Ghost v6 the members list does not expose the email as a navigable link role.
+    // Navigate directly to the member detail page using the created member's ID.
+    await page.goto(`/ghost/#/members/${member.id}`);
 
     await expect(page).toHaveURL(/\/#\/members\/[a-f0-9]+/);
 
-    // Open the action menu or find the Delete button on the member detail page
-    const deleteBtn = page.getByRole('button', { name: /delete member/i });
-    await deleteBtn.click();
+    // The "Delete member" button is obscured by the email input in Ghost v6's layout.
+    // dispatchEvent fires the click event directly on the DOM element, bypassing
+    // pointer-event routing that would otherwise deliver it to the overlapping input.
+    await page.locator('[data-test-button="delete-member"]').dispatchEvent('click');
 
-    // Confirm deletion in the dialog
-    await page.getByRole('button', { name: /delete/i }).last().click();
+    // Ghost's confirmation panel has no role="dialog" — it's a generic container.
+    // Wait for the heading that uniquely identifies it, then click the confirm button.
+    // Two "Delete member" buttons exist in the DOM (trigger + confirm); use .last() to
+    // target the confirmation button which appears later in DOM order.
+    await expect(page.getByRole('heading', { name: 'Delete member account' })).toBeVisible({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Delete member' }).last().click();
 
-    // Ghost redirects back to the member list after deletion
-    await expect(page).toHaveURL(/\/#\/members/);
-    await expect(page.getByText(email)).not.toBeVisible();
+    // Ghost redirects back to the member LIST after deletion.
+    // Use a URL pattern that excludes the member detail URL (no hex ID segment).
+    await page.waitForURL(/\/#\/members(?!\/[a-f0-9]{24})/, { timeout: 15000 });
+    // The deleted member's email should no longer appear; use first() to handle
+    // cases where the email renders as both a link and bold text on the same page.
+    await expect(page.getByText(email).first()).not.toBeVisible();
   });
 });

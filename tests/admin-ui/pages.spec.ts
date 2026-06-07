@@ -47,7 +47,11 @@ test.describe('Admin UI — Pages', () => {
     await editorBody.click();
     await page.keyboard.type('AU-017 test page body content.');
 
-    await waitForSave(page);
+    // For a new page Ghost creates the record and updates the URL on first save
+    // (from /editor/page to /editor/page/{id}), so the "Saved" toast races with
+    // the URL change. Wait for the ID-bearing URL instead of the toast.
+    await page.keyboard.press('Meta+S');
+    await page.waitForURL(/\/editor\/page\/[a-f0-9]+/, { timeout: 15000 });
 
     // Capture the page ID from the URL for afterEach cleanup
     const url = page.url();
@@ -86,20 +90,32 @@ test.describe('Admin UI — Pages', () => {
    * AU-019: Delete a page via the admin UI and confirm it no longer appears in the page list.
    */
   test('AU-019: delete a page; page no longer appears in page list', async ({ page, adminApi }) => {
-    await adminApi.createPage({ title: 'AU-019 Page to Delete' });
+    // Include a timestamp to avoid strict mode violations from leftover pages
+    // created by previous failed test runs that share the same title.
+    const pageTitle = `AU-019 Page to Delete ${Date.now()}`;
+    const ghostPage = await adminApi.createPage({ title: pageTitle });
     // Not tracked in cleanupIds — the UI deletion is the assertion
 
-    await page.goto('/ghost/#/pages');
+    // Ghost v6 removed the hover kebab/more menu from the page list.
+    // Delete is accessible from within the page editor's settings sidebar.
+    await page.goto(`/ghost/#/editor/page/${ghostPage.id}`);
+    // Ghost's SPA router may render the editor asynchronously — wait for network idle
+    // before asserting editor elements to avoid a race on fresh page loads.
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('textbox', { name: /page title/i })).toBeVisible({ timeout: 15000 });
 
-    const pageCard = page.getByRole('link', { name: /AU-019 Page to Delete/i }).first();
-    await expect(pageCard).toBeVisible();
+    // Open the page settings sidebar
+    await page.getByRole('button', { name: /settings/i }).click();
+    await expect(page.locator('.settings-menu, [data-testid="post-settings"], .gh-editor-sidebar').first()).toBeVisible();
 
-    await pageCard.hover();
-    await page.getByRole('button', { name: /more/i }).first().click();
-    await page.getByRole('menuitem', { name: /delete/i }).click();
+    // "Delete page" appears at the bottom of the settings sidebar
+    await page.getByRole('button', { name: /delete page/i }).click();
 
+    // Ghost shows a confirmation dialog before permanent deletion
     await page.getByRole('button', { name: /delete/i }).last().click();
 
-    await expect(page.getByRole('link', { name: /AU-019 Page to Delete/i })).not.toBeVisible();
+    // After deletion Ghost redirects to the page list; the page should not appear
+    await expect(page).toHaveURL(/\/#\/pages/);
+    await expect(page.getByText(pageTitle)).not.toBeVisible();
   });
 });

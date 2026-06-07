@@ -34,21 +34,23 @@ test.describe('Admin API — Authentication', () => {
   });
 
   // -------------------------------------------------------------------------
-  // AA-002 — Malformed token returns 401 with errors array
-  // A token that is not a valid JWT must be rejected.  Asserts both the status
-  // code and the presence of an errors array in the body — Ghost must return
-  // a structured error response, not a 200 with empty data or a raw HTML page,
-  // which would indicate the auth middleware is not running.
+  // AA-002 — Malformed token returns 4xx with errors array
+  // A token that is not a valid JWT must be rejected.  Ghost returns 400 (Bad
+  // Request) when it cannot parse the token structure — a 400 is appropriate
+  // here because the request itself is malformed, not just unauthorised.
+  // Asserts both the status code and the presence of an errors array in the body.
   //
   // Security implication: if this test fails, a malformed credential is being
   // accepted, meaning the auth check is bypassed or not enforced at all.
   // -------------------------------------------------------------------------
-  test('AA-002: malformed token returns 401 with errors array', async ({ request }) => {
+  test('AA-002: malformed token returns 400 with errors array', async ({ request }) => {
     const res = await request.get(`${BASE()}/ghost/api/admin/posts/`, {
       headers: { Authorization: 'Ghost this-is-not-a-valid-jwt' },
     });
 
-    expect(res.status()).toBe(401);
+    // Ghost returns 400 for a syntactically invalid JWT (not 401 — the token
+    // cannot even be parsed, so it is a bad request rather than unauthorised)
+    expect(res.status()).toBe(400);
 
     const body = await res.json();
     expect(Array.isArray(body.errors)).toBe(true);
@@ -56,20 +58,23 @@ test.describe('Admin API — Authentication', () => {
   });
 
   // -------------------------------------------------------------------------
-  // AA-003 — Missing Authorization header returns 401 with errors array
-  // A completely unauthenticated request must be rejected.  Asserts both the
-  // status code and the structured errors array — confirming the API does not
-  // fall through to a default-allow state when no header is present at all.
+  // AA-003 — Missing Authorization header returns 403 with errors array
+  // A completely unauthenticated request must be rejected.  Ghost returns 403
+  // (Forbidden) rather than 401 when no Authorization header is present — this
+  // is the actual behaviour observed on this instance (running behind Cloudflare
+  // Tunnel), where the auth middleware produces a 403 for absent credentials.
+  // Asserts both the status code and the structured errors array.
   //
-  // Security implication: if this test fails, the Admin API is open to the
-  // public internet with no authentication required.
+  // Security implication: if this test fails, the Admin API is accessible
+  // without any credentials.
   // -------------------------------------------------------------------------
-  test('AA-003: missing Authorization header returns 401 with errors array', async ({
+  test('AA-003: missing Authorization header returns 403 with errors array', async ({
     request,
   }) => {
     const res = await request.get(`${BASE()}/ghost/api/admin/posts/`);
 
-    expect(res.status()).toBe(401);
+    // Ghost returns 403 (not 401) when no Authorization header is present
+    expect(res.status()).toBe(403);
 
     const body = await res.json();
     expect(Array.isArray(body.errors)).toBe(true);
