@@ -166,3 +166,31 @@ This is the same reasoning already applied to `workers: 1` (Decision 5): a delib
 **Tradeoffs Acknowledged**
 
 A higher `actionTimeout` means a genuinely hung operation waits 30 seconds rather than 15 before failing, and a hung test waits up to 60 seconds — slower feedback on a true outage. Raising `actionTimeout` also relaxes UI action timeouts (clicks, fills), which could mask a real front-end slowdown as merely-slow rather than broken. Both tradeoffs are accepted: on this hardware the dominant failure mode is transient slowness under load, not hard hangs, and erring toward letting slow-but-alive operations complete removes far more false failures than it hides. On capable hardware (a cloud runner or modern desktop) these timeouts would be set lower; like `workers: 1`, they are an explicit environmental accommodation rather than a universal default.
+
+---
+
+## 8. Admin 2FA Lockdown and CI Run Cadence
+
+**Context**
+
+Ghost v6 sends a six-digit verification code to the admin email when an admin signs in from an unrecognized browser. The suite handles this automatically: AU-001 retrieves the code from Mailpit and completes the verification step (`tests/admin-ui/auth.spec.ts`). To avoid requesting a code on every local run, AU-001 caches the authenticated session to `.auth/admin.json` and reuses it for up to four hours (Decision 7 covers the timeout behaviour; the session-caching fast path is in the same file). Within that window, consecutive local runs reuse the saved session and request **zero** verification codes.
+
+CI does not benefit from this cache. Each CI run starts from a fresh checkout on the self-hosted runner, where `.auth/admin.json` does not exist (it is gitignored and never committed — it holds live session tokens). AU-001 therefore **always takes the full login path in CI and requests one fresh admin verification code per run.**
+
+Ghost rate-limits admin 2FA: requesting too many verification codes in a short window triggers an approximately **30-minute lockdown** during which further code requests are rejected. A single suite run requests at most one code (only AU-001's full-login path; AU-002 uses a deliberately wrong password and AU-003 reuses the stored session). The risk is therefore not within a run but **across runs in quick succession**: two CI runs started within ~30 minutes of each other can request two codes inside the rate-limit window and trip the lockdown, which fails AU-001 and cascades through the entire admin-UI suite.
+
+**Decision**
+
+Treat admin 2FA as a shared, rate-limited resource and pace CI accordingly:
+
+- **Do not re-trigger CI within 30 minutes of a previous run.** This includes manual re-runs of a failed workflow and rapid successive pushes to `main` or an open PR — each push that runs the workflow requests a fresh code.
+- **If the lockdown fires** (AU-001 fails to retrieve a code and the admin-UI suite cascades), do not immediately retry. **Wait out the lockdown window (~30 minutes), then re-run once.** Retrying inside the window only extends it.
+- Locally, the four-hour session cache makes this a non-issue for back-to-back runs; the constraint is specifically a CI-cadence concern.
+
+**Rationale**
+
+The session cache already eliminates the lockdown risk for the common case (local development). The remaining exposure is structural to CI — a fresh checkout cannot reuse a cached session — and is cheaper to manage operationally than to engineer around. Persisting `.auth/admin.json` across CI runs (e.g. via a cached artifact) was considered and rejected: it would mean storing live admin session tokens in CI caching infrastructure, a credential-exposure tradeoff disproportionate to the inconvenience of spacing out runs. Accepting a run-cadence rule keeps admin session tokens ephemeral and confined to the runner for the duration of a single run.
+
+**Tradeoffs Acknowledged**
+
+The 30-minute cadence rule constrains how quickly CI feedback can be obtained after a fix — a developer who pushes a follow-up commit within half an hour of a previous run may trip the lockdown rather than get a clean result. This is accepted for a portfolio project where CI runs are infrequent and deliberate. A higher-throughput pipeline with frequent merges would need a different approach — for example, a dedicated CI admin account whose browser/IP is pre-trusted so it bypasses the 2FA step entirely, or a Ghost configuration that exempts the runner from the verification requirement. Neither is justified at this project's run frequency.
