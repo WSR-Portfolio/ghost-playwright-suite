@@ -229,7 +229,9 @@ test.describe('Member UI — Magic Link Authentication', () => {
 
     // The post title appearing on the page confirms the content was served —
     // Ghost would redirect rather than render the title for unauthenticated users
-    await expect(page.getByRole('heading', { name: 'MU-004 Members Only Post' })).toBeVisible({
+    // Scope to h1 — the post page also renders the title in an h2 nav element,
+    // which would cause a strict mode violation with a generic heading selector.
+    await expect(page.locator('h1').filter({ hasText: 'MU-004 Members Only Post' })).toBeVisible({
       timeout: 15_000,
     });
 
