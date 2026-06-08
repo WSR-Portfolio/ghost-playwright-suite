@@ -34,9 +34,10 @@
  * works (HTML content AND member API), and MU-006 verifies the Content API
  * boundary independently of MU-005's HTML check.
  *
- * Teardown: this file owns all member cleanup for the member-ui suite.
- * auth.spec.ts does not delete members so the member account exists when
- * beforeAll re-authenticates here. deleteAllMembers() runs in afterAll.
+ * Teardown: member deletion is owned by global-teardown (Decision 10), not this file.
+ * auth.spec.ts (member-auth) creates the member session this suite restores from saved
+ * cookies, and that member must stay alive for the whole run — so no spec deletes members
+ * mid-run; the final sweep happens once in global-teardown after all projects finish.
  */
 
 import { test, expect, MEMBER_COOKIES_FILE } from '../fixtures';
@@ -129,8 +130,9 @@ test.afterAll(async ({ adminApi, mailpit }) => {
   await authContext.close();
   await adminApi.deletePost(membersPost.id);
   await adminApi.deletePost(publicPost.id);
-  // Owns all member teardown for the member-ui suite
-  await adminApi.deleteAllMembers();
+  // Member deletion is owned by global-teardown (Decision 10). Deleting members here
+  // would race the parallel admin-members API tests and the registration spec, and would
+  // wipe this suite's own session member out from under any still-running test.
   await mailpit.deleteAllMessages();
 });
 

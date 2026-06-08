@@ -5,18 +5,15 @@
  * There is no traditional registration page — Ghost injects the portal as a
  * React-rendered modal. These tests navigate to the portal URL directly.
  *
- * Teardown: deleteAllMembers() wipes the member list after the suite so that
- * test signups do not accumulate across runs. See test-plan.md §6 for the
- * rationale behind the global teardown policy.
+ * Teardown: member deletion is owned by global-teardown, which runs once after all
+ * projects complete. This spec does not delete members itself — doing so mid-run would
+ * race the parallel member content-access and admin-members specs under parallel
+ * execution (Decision 10). See test-plan.md §6 for the global teardown policy.
  */
 
 import { test, expect, generateTestEmail } from '../fixtures';
 
 const PORTAL_SIGNUP_URL = '/#/portal/signup';
-
-test.afterAll(async ({ adminApi }) => {
-  await adminApi.deleteAllMembers();
-});
 
 test.describe('Member UI — Registration', () => {
   /**
