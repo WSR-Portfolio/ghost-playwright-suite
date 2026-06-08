@@ -1,6 +1,6 @@
 # Ghost Playwright Suite — Rate Limit Cleanup Plan
 
-**Status:** In progress — Steps 1–4 and 6 complete; Steps 5 and 7 pending the admin-2FA empirical check and CI verification (both require `DB_PASSWORD` in local `.env` and as GitHub Actions secrets).  
+**Status:** ✅ COMPLETE — All steps done. The admin-2FA empirical check (Step 5) passed: with the brute reset active, two cold admin logins minutes apart both succeeded, confirming the 2FA limiter lives in the `brute` table. `retries: 0` removed and the §8 cadence rule retired. CI green at 92 passed with `brute table cleared` confirmed in the log. **CI note:** `DB_HOST` secret is `ghost-stack-db-1` (the MySQL container name on the shared `ghost-stack_default` Docker network) — `127.0.0.1` does not work from inside the runner container.  
 **Gating condition:** Infra changes (Steps 1–2) must be completed and verified before any code changes begin.  
 **Estimated total effort:** ~3–4 hours across infra + code + docs
 

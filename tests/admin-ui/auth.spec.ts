@@ -44,14 +44,12 @@ async function getAdminVerificationCode(mailpit: MailpitHelper, adminEmail: stri
 }
 
 test.describe('Admin Authentication', () => {
-  // Disable retries for the auth suite specifically. AU-001's full-login path requests a
-  // fresh Ghost 2FA verification code, and Ghost rate-limits those requests with a ~30-min
-  // lockdown (ADR §8). With the project-wide retries: 2, a single failed AU-001 would request
-  // three codes in quick succession and trip — or extend — that lockdown, cascading the whole
-  // admin-UI suite. Retrying a rate-limited 2FA login cannot succeed on an immediate retry
-  // anyway, so the retries add no value here and actively cause harm. Every other suite keeps
-  // the project default (retries help with transient NAS slowness, ADR §7).
-  test.describe.configure({ retries: 0 });
+  // This suite inherits the project default retries (2 on CI). The `retries: 0` override
+  // that previously lived here existed only to avoid AU-001 requesting multiple 2FA codes in
+  // a retry burst and tripping Ghost's verification lockdown (ADR §8). That is no longer a
+  // concern: the brute table is reset before every run (ADR §11), and `spam.user_login`
+  // freeRetries is raised to 50, so a retry burst stays well under the limit. An empirical
+  // back-to-back CI check confirmed two cold logins minutes apart both succeed.
 
   /**
    * AU-001: Valid credentials reach the dashboard.
