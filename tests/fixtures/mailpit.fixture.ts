@@ -148,6 +148,28 @@ export const test = adminApiTest.extend<MailpitFixtures>({
   mailpit: async ({ request }, use) => {
     await use(new MailpitHelper(request));
   },
+
+  /**
+   * Centralized navigation hardening for the NAS test target (same rationale as the
+   * operation timeouts in ADR §7 — accommodate the environment once, in one place).
+   *
+   * The Ghost admin is a heavy SPA served through the Cloudflare Tunnel. Waiting for the
+   * full 'load' event (every JS bundle, font, and beacon) is fragile under sustained NAS
+   * load and can blow past the navigation timeout even when the page is already interactive
+   * — observed as `page.goto: Timeout exceeded ... waiting until "load"` on the foundational
+   * login. Default every goto to 'domcontentloaded' (the sign-in form and admin shell are
+   * usable well before 'load' fires) and give navigations a budget sized for the NAS. Setting
+   * this once here means all spec gotos inherit it without scattering per-call overrides —
+   * the exact anti-pattern ADR §7 calls out. Callers can still pass an explicit waitUntil to
+   * opt back into stricter waiting where a test genuinely needs it.
+   */
+  page: async ({ page }, use) => {
+    page.setDefaultNavigationTimeout(45_000);
+    const originalGoto = page.goto.bind(page);
+    page.goto = (url, options) =>
+      originalGoto(url, { waitUntil: 'domcontentloaded', ...options });
+    await use(page);
+  },
 });
 
 export { expect } from '@playwright/test';
