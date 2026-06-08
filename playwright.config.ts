@@ -10,9 +10,14 @@ export default defineConfig({
   // Prevent accidental .only from blocking CI runs
   forbidOnly: !!process.env.CI,
 
-  // Sequential execution — test target is a low-powered NAS
+  // Parallel across spec files, but ordered within each file (fullyParallel: false).
+  // The target moved off the low-powered NAS onto a dedicated i7/16GB host, so the
+  // sequential accommodation of Decision 5 is no longer needed. Decision 10 covers the
+  // move to workers: 4 and the setup-project dependencies below that guarantee the auth
+  // specs create the shared sessions before the parallel `main` project runs. Within-file
+  // order is kept (fullyParallel: false) for the AU-001->002->003 and MU-005->...->010 chains.
   fullyParallel: false,
-  workers: 1,
+  workers: 4,
   retries: process.env.CI ? 2 : 0,
 
   reporter: [
@@ -48,9 +53,40 @@ export default defineConfig({
 
   globalTeardown: './tests/global-teardown',
 
+  // Setup projects (Decision 10): the auth specs create the shared session files that the
+  // rest of the suite restores via storageState. Modelling them as prerequisite projects
+  // makes the "auth runs first" ordering explicit and enforced on cold checkouts (CI),
+  // instead of relying on workers: 1 plus alphabetical file order. The auth specs remain
+  // real test cases — this only constrains ordering. The `main` project then parallelises.
   projects: [
     {
-      name: 'chromium',
+      name: 'admin-auth',
+      testMatch: /admin-ui[\\/]auth\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'member-auth',
+      testMatch: /member-ui[\\/]auth\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // API + admin-UI specs: depend only on the admin session. A member sign-in
+      // rate-limiter trip (Decision 9) is an expected, environmental condition, so it must
+      // NOT block these ~80 tests — member-auth is deliberately not a dependency here.
+      name: 'main',
+      testMatch: /(api|admin-ui)[\\/].*\.spec\.ts$/,
+      testIgnore: /admin-ui[\\/]auth\.spec\.ts$/,
+      dependencies: ['admin-auth'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // Member-UI specs (registration + content access): depend on the member session.
+      // Isolated in their own project so a member-limiter trip affects only these tests,
+      // not the API/admin-UI suite.
+      name: 'member',
+      testMatch: /member-ui[\\/].*\.spec\.ts$/,
+      testIgnore: /member-ui[\\/]auth\.spec\.ts$/,
+      dependencies: ['member-auth'],
       use: { ...devices['Desktop Chrome'] },
     },
   ],
