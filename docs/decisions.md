@@ -228,3 +228,39 @@ This mirrors the philosophy applied throughout the suite (Decisions 5, 7, and 8)
 **Tradeoffs Acknowledged**
 
 A self-skipping test provides no positive signal on the run where it skips — if MU-001 silently skipped on every run, the signup flow would effectively be untested while still appearing green. This is accepted because the skip is the exception, not the norm: a single run, or runs spaced sensibly apart, exercises MU-001 fully. The skip reason is surfaced in the report so a reviewer can see it fired and why. If MU-001 began skipping persistently, that would itself be the signal to investigate — either the runner IP is hitting the limiter chronically (pointing to run cadence) or Ghost's limiter configuration has changed. A higher-throughput setup would address this the same way as the admin case: a dedicated, pre-trusted member-testing path or a limiter exemption for the runner IP, neither justified at this project's run frequency.
+
+---
+
+## 10. Migration off the NAS, and Parallel Execution via Setup Projects
+
+**Context**
+
+Decisions 5 and 7 were both explicit accommodations of the original test target: a low-powered Synology NAS running Ghost in Docker. Sequential execution (`workers: 1`, Decision 5) avoided resource-contention flakiness, and the enlarged operation timeouts (Decision 7) gave slow-but-alive calls room to complete. Those decisions were correct *for that hardware*.
+
+The hardware has since changed. Ghost and its companion services (including Mailpit, now at `http://10.0.4.92:8025`) were migrated onto a dedicated host — an Intel i7 with 16 GB of RAM. The difference is dramatic and measured, not assumed: the foundational admin login (AU-001) dropped from ~50s under CI load on the NAS to ~4s, and a full sequential suite run fell from ~18.8 min in CI (when it passed at all) to ~3.0 min. On the NAS the CI runner was a container sharing the box with Ghost, so the runner and its headless Chromium starved the application under test; the new host removes that contention entirely.
+
+With the hardware bottleneck gone, the two accommodations above are worth revisiting — in particular `workers: 1`, the single biggest lever on wall-clock time.
+
+**Decision**
+
+Run tests in parallel (`workers: 4`) while keeping `fullyParallel: false`, and introduce Playwright **setup projects with dependencies** to satisfy the suite's session prerequisites:
+
+- A `admin-auth` project runs `admin-ui/auth.spec.ts` (AU-001–003), producing `.auth/admin.json`.
+- A `member-auth` project runs `member-ui/auth.spec.ts` (MU-004), producing `.auth/member.json`.
+- A `main` project runs everything else and declares `dependencies: ['admin-auth', 'member-auth']`, so it does not start until both session files exist.
+
+`fullyParallel: false` is retained deliberately: it parallelises across spec *files* while keeping the tests *within* a file ordered. That ordering is load-bearing for two chains — AU-001 must create the admin session before AU-002/003 reuse it, and MU-005…MU-010 must run in order because MU-010 logs out and clears the session the earlier tests depend on.
+
+**Rationale**
+
+A direct empirical test drove this. Simply raising `workers` to 4 with the old single-project layout produced 89 passed / 3 failed in 58.9s. The win was immediate (~2.6× faster than the 2.6-min sequential local run), and the failures were not random: all three were the member-session-dependent tests (MU-005/008/009) in `content-access.spec.ts`. Under parallelism that file started before `member-ui/auth.spec.ts` had refreshed `.auth/member.json`, so the restored member session was stale and the member API returned no member. The admin-UI tests all passed only because `.auth/admin.json` happened to be warm locally — on a cold CI checkout they would have cascaded the same way (and did, repeatedly, during the migration debugging).
+
+This is precisely the problem Playwright's project dependencies exist to solve. Modelling the two auth specs as prerequisite projects makes the implicit "auth runs first" ordering — previously an accident of `workers: 1` plus alphabetical file order — explicit and enforced, on cold checkouts as much as warm ones. The auth specs remain real test cases (they still validate the login and magic-link flows); designating them as dependencies is about ordering, not reclassification.
+
+Member tests are left in the parallel `main` project rather than serialised wholesale: the empirical run showed no member sign-in rate-limiter failures at `workers: 4` (the per-run volume of member emails is small, and MU-001 still self-skips if the limiter is hit, per Decision 9), and `fullyParallel: false` already keeps the ordered MU-005…MU-010 chain intact within its file.
+
+Decision 7's enlarged timeouts are left in place. They are now generous rather than necessary, but they cost nothing on fast hardware (a fast operation never approaches them) and they preserve a safety margin against transient slowness without reintroducing the per-call scatter that Decision 7 eliminated.
+
+**Tradeoffs Acknowledged**
+
+Parallelism reintroduces a class of risk that `workers: 1` made impossible: tests that share mutable target state can now interleave. The suite is largely isolated (API tests create and delete their own fixtures; UI tests act on API-seeded data), but parallel runs are inherently more sensitive to any hidden coupling, and a future test that mutates shared state without isolating it could flake under load in a way it never would sequentially. The `fullyParallel: false` setting limits the blast radius to cross-file interleaving rather than within-file, and the member rate limiter remains a real ceiling — a much higher worker count, or many parallel runs in quick succession, could still trip it (Decisions 8 and 9 remain in force). `workers: 4` is a deliberate, moderate setting for this host, not a maximum to be pushed without re-measuring.
