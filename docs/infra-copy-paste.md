@@ -57,19 +57,19 @@ docker compose exec mysql mysql -u root -p
 Then inside the MySQL shell (replace `strongpassword` and `ghost_db` with your actual values):
 
 ```sql
-CREATE USER 'ghost_brute_reset'@'%' IDENTIFIED BY 'strongpassword';
-GRANT DELETE ON ghost_db.brute TO 'ghost_brute_reset'@'%';
+CREATE USER 'brute_reset_user'@'%' IDENTIFIED BY 'strongpassword';
+GRANT DELETE ON ghost_db.brute TO 'brute_reset_user'@'%';
 FLUSH PRIVILEGES;
-SHOW GRANTS FOR 'ghost_brute_reset'@'%';
+SHOW GRANTS FOR 'brute_reset_user'@'%';
 ```
 
 Expected output of SHOW GRANTS:
 ```
 +-----------------------------------------------------------------------+
-| Grants for ghost_brute_reset@%                                        |
+| Grants for brute_reset_user@%                                        |
 +-----------------------------------------------------------------------+
-| GRANT USAGE ON *.* TO `ghost_brute_reset`@`%`                        |
-| GRANT DELETE ON `ghost_db`.`brute` TO `ghost_brute_reset`@`%`        |
+| GRANT USAGE ON *.* TO `brute_reset_user`@`%`                        |
+| GRANT DELETE ON `ghost_db`.`brute` TO `brute_reset_user`@`%`        |
 +-----------------------------------------------------------------------+
 ```
 
@@ -112,7 +112,7 @@ docker compose up -d mysql
 From the ghostbox host (not inside a container):
 
 ```bash
-mysql -h 127.0.0.1 -P 3306 -u ghost_brute_reset -p ghost_db -e "DELETE FROM brute;"
+mysql -h 127.0.0.1 -P 3306 -u brute_reset_user -p ghost_db -e "DELETE FROM brute;"
 ```
 
 Enter the password when prompted. Expected output:
@@ -127,7 +127,7 @@ Enter the password when prompted. Expected output:
 DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=ghost_db
-DB_USER=ghost_brute_reset
+DB_USER=brute_reset_user
 DB_PASSWORD=strongpassword
 ```
 
@@ -140,7 +140,7 @@ In your repo → Settings → Secrets and variables → Actions → New reposito
 | `DB_HOST` | `localhost` |
 | `DB_PORT` | `3306` |
 | `DB_NAME` | `ghost_db` |
-| `DB_USER` | `ghost_brute_reset` |
+| `DB_USER` | `brute_reset_user` |
 | `DB_PASSWORD` | `strongpassword` |
 
 These are added individually. The workflow YAML references them as `${{ secrets.DB_HOST }}` etc.
