@@ -1,14 +1,17 @@
 /**
  * Admin API — Members (AA-025 through AA-030)
  *
- * Cleanup strategy: afterAll calls deleteAllMembers() rather than per-test
- * teardown.  This is intentional — the target is a controlled environment with
- * no real users (CLAUDE.md), so wiping all members after the suite is safe and
- * simpler than tracking individual IDs across tests that may fail mid-create.
+ * Cleanup strategy: this suite does NOT delete members itself. Member deletion is
+ * owned solely by global-teardown, which runs once after every project completes.
+ * Calling deleteAllMembers() mid-run is unsafe under parallel execution (Decision 10):
+ * it would wipe the member-UI session member while the `member` project is mid-flight.
+ * Every member here is created with a unique generateTestEmail() address, so leaving
+ * them in place until global-teardown affects no other test — no assertion depends on a
+ * global member count (AA-030 filters by a unique email and expects exactly one).
  *
  * All email addresses are generated via generateTestEmail() so they are scoped
  * to the testuser.wsrportfolio.dev subdomain and immediately identifiable in
- * Ghost's member list if a run is interrupted before afterAll fires.
+ * Ghost's member list if a run is interrupted before global-teardown fires.
  *
  * Tests that expect non-201 status codes (AA-026, AA-027) use the raw
  * Playwright `request` fixture because AdminApiHelper.createMember asserts
@@ -26,11 +29,9 @@ const BASE = (): string => {
 const authHeaders = () => ({ Authorization: `Ghost ${generateAdminToken()}` });
 
 test.describe('Admin API — Members', () => {
-  test.afterAll(async ({ adminApi }) => {
-    // Nuclear teardown: removes every member created during this suite run.
-    // Safe because GHOST_URL targets a dedicated test environment.
-    await adminApi.deleteAllMembers();
-  });
+  // No suite-level member teardown here — global-teardown owns member deletion (see the
+  // file header and Decision 10). Deleting members mid-run would race the parallel
+  // member-UI project and invalidate its session member.
 
   // -------------------------------------------------------------------------
   // AA-025 — Create a member
@@ -103,8 +104,8 @@ test.describe('Admin API — Members', () => {
   // AA-028 — Delete member; subsequent GET returns 404
   // After deletion the member must not be accessible via the Admin API.
   // Uses a raw GET because there is no getMember(id) helper.
-  // afterAll will call deleteAllMembers() — this member is already gone by
-  // then, but deleteAllMembers iterates only existing records, so no error.
+  // This test deletes its own member; global-teardown's final sweep iterates only
+  // existing records, so the already-gone member causes no error there.
   // -------------------------------------------------------------------------
   test('AA-028: deleted member returns 404 on subsequent GET', async ({ adminApi, request }) => {
     const email = generateTestEmail(`aa-028-${Date.now()}`);
