@@ -63,6 +63,13 @@ jobs:
           GHOST_ADMIN_EMAIL: ${{ secrets.GHOST_ADMIN_EMAIL }}
           GHOST_ADMIN_PASSWORD: ${{ secrets.GHOST_ADMIN_PASSWORD }}
           MAILPIT_URL: ${{ secrets.MAILPIT_URL }}
+          # DB credentials for the brute-table reset in global-setup.ts (ADR §11).
+          # The dedicated user has DELETE on the brute table only.
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
       - name: Upload HTML report
         uses: actions/upload-artifact@v5
