@@ -35,20 +35,11 @@ test.describe('Member UI — Registration', () => {
     await portalFrame.getByRole('textbox', { name: /email/i }).fill(email);
     await portalFrame.getByRole('button', { name: /continue|sign up|subscribe/i }).click();
 
-    // When Ghost cannot complete the signup — due to IP-level rate limiting
-    // ("too many different sign-in attempts"), SMTP failure ("failed to sign up"),
-    // or any other transient error — the portal replaces the submit button with
-    // a "Retry" button and the confirmation screen never appears. Skip cleanly
-    // rather than failing with a confusing 15-second timeout.
-    const retryButton = portalFrame.getByRole('button', { name: /^retry$/i });
-    await retryButton.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
-    if (await retryButton.isVisible()) {
-      const toastText = await page.locator('.gh-portal-notification').textContent().catch(() => '');
-      test.skip(true, `Ghost signup blocked (${toastText?.trim() || 'transient error'}) — re-run later`);
-      return;
-    }
-
-    // Ghost displays a "check your email" screen after a successful submission
+    // Ghost displays a "check your email" screen after a successful submission.
+    // The member sign-in rate limiter that previously forced a self-skip here is now
+    // tuned generously (spam.member_login freeRetries) and the brute table is reset before
+    // each run by global-setup (ADR §11), so a normal run never trips it. If the limiter
+    // does fire now, that is a real failure worth surfacing — not an expected skip.
     await expect(
       portalFrame.getByText(/check your email|confirm your email|magic link/i),
     ).toBeVisible({ timeout: 15_000 });

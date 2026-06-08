@@ -173,6 +173,14 @@ A higher `actionTimeout` means a genuinely hung operation waits 30 seconds rathe
 
 ## 8. Admin 2FA Lockdown and CI Run Cadence
 
+> **Update (see §11):** The `brute`-table reset in global setup (§11) is now the primary
+> defense against cross-run lockouts. Whether it also clears the admin **2FA
+> device-verification code** limiter (the ~30-minute lockdown described below) is a separate
+> question from the login brute limit, and is confirmed by an empirical back-to-back check
+> (§11, Step 5 of the cleanup plan). Until that check passes, `retries: 0` on the auth suite
+> and the run-cadence guidance below remain in force as a fallback; if it passes, both can be
+> retired.
+
 **Context**
 
 Ghost v6 sends a six-digit verification code to the admin email when an admin signs in from an unrecognized browser. The suite handles this automatically: AU-001 retrieves the code from Mailpit and completes the verification step (`tests/admin-ui/auth.spec.ts`). To avoid requesting a code on every local run, AU-001 caches the authenticated session to `.auth/admin.json` and reuses it for up to four hours (Decision 7 covers the timeout behaviour; the session-caching fast path is in the same file). Within that window, consecutive local runs reuse the saved session and request **zero** verification codes.
@@ -200,6 +208,13 @@ The 30-minute cadence rule constrains how quickly CI feedback can be obtained af
 ---
 
 ## 9. Member Sign-In Rate Limiter and Self-Skipping Registration Test
+
+> **Update (see §11):** The self-skip described below has been **removed**. Once Ghost's
+> `spam.member_login` limit was raised and the `brute` table is reset before every run
+> (§11), a normal run no longer trips the member limiter, so MU-001 now asserts the
+> confirmation screen unconditionally — a limiter trip is treated as a real failure. The
+> record below is retained as the rationale that applied while the limiter was at its
+> restrictive defaults.
 
 **Context**
 
@@ -266,3 +281,32 @@ Decision 7's enlarged timeouts are left in place. They are now generous rather t
 **Tradeoffs Acknowledged**
 
 Parallelism reintroduces a class of risk that `workers: 1` made impossible: tests that share mutable target state can now interleave. The suite is largely isolated (API tests create and delete their own fixtures; UI tests act on API-seeded data), but parallel runs are inherently more sensitive to any hidden coupling, and a future test that mutates shared state without isolating it could flake under load in a way it never would sequentially. The `fullyParallel: false` setting limits the blast radius to cross-file interleaving rather than within-file, and the member rate limiter remains a real ceiling — a much higher worker count, or many parallel runs in quick succession, could still trip it (Decisions 8 and 9 remain in force). `workers: 4` is a deliberate, moderate setting for this host, not a maximum to be pushed without re-measuring.
+
+---
+
+## 11. Rate-Limit Configuration and Brute-Table Reset
+
+**Context**
+
+Ghost protects its authentication endpoints with `express-brute`, which records failed/aggregate attempt counts in a single MySQL table named `brute`. Three buckets share that table: `user_login` (admin staff sign-in at `/ghost/`), `member_login` (member magic-link sign-in via Portal), and `global_reset` (a per-IP aggregate). The out-of-the-box limits are restrictive — `member_login` allows only two free retries — and the counters persist across runs with a default `lifetime` of one hour.
+
+For most of this project's life those defaults were treated as immovable, and the suite accumulated accommodations around them: the admin session cache and `retries: 0` on the auth suite (Decision 8), the self-skipping MU-001 (Decision 9), and an operational rule to space CI runs ~30 minutes apart. Every lockout cascade we hit traced back to the same root cause — *residual lockout state carried from one run into the next* — rather than to anything a single run did wrong. These were workarounds for the symptom, not the cause.
+
+**Decision**
+
+Address the limiter at the source, in two parts, and treat the test instance's limits as tunable infrastructure rather than a fixed constraint:
+
+1. **Tune, don't disable.** Add a `spam` block to `config.production.json` on the Ghost host raising `freeRetries` to 50 for `user_login`, `member_login`, and `global_reset`, with `minWait: 60000`, `maxWait: 600000`, `lifetime: 3600`. A full suite run makes well under ten member-email actions, so 50 gives comfortable headroom across several back-to-back runs, while a genuine brute-force attack would still be blocked. The limiter stays *real* — this is a test-environment threshold, not a security bypass.
+2. **Reset the slate each run.** A Playwright `globalSetup` (`tests/global-setup.ts`) clears the `brute` table (`DELETE FROM brute`) before any project starts, so no run inherits another's lockout state. It connects with a dedicated MySQL user (`ghost_brute_reset`) granted **`DELETE` on the `brute` table only** — if those credentials leak they cannot read or modify content or members. The credentials come from `DB_*` env vars; when they are absent (e.g. a dev machine that cannot reach the host's MySQL) the setup logs a warning and no-ops rather than failing, relying on the tuned config alone.
+
+**Rationale**
+
+The two parts are complementary: the config raise prevents a single run from approaching the limit, and the brute reset eliminates cross-run contamination that no per-run setting can fix. Together they remove the *cause*, which lets the symptom-level workarounds go: MU-001's self-skip is deleted (Decision 9) so the signup flow is exercised every run, and the member-cadence concern disappears.
+
+Composition with Decision 10 is clean: Playwright runs `globalSetup` exactly once, before *all* projects — including the `admin-auth` and `member-auth` setup projects — so the table is cleared before any login attempt is made. There is no ordering conflict with the setup-project dependencies.
+
+One limiter is deliberately treated as unresolved: the admin **2FA device-verification code** lockdown (Decision 8) is a distinct mechanism from `user_login` brute-forcing, and it is not yet confirmed whether it lives in the `brute` table. The decision is gated on an empirical check — delete `.auth/admin.json` and run the auth spec twice in quick succession; if both complete, the reset clears it and `retries: 0` plus the §8 cadence rule can be retired; if the second is blocked at the code step, the 2FA limiter is separate and those §8 accommodations stay as a fallback. The honest position is to verify before claiming the cadence rule is obsolete.
+
+**Tradeoffs Acknowledged**
+
+The brute reset gives the test suite write access to Ghost's database, a coupling the suite did not previously have. It is scoped as tightly as possible (one user, `DELETE` on one table) and degrades gracefully when unavailable, but it does mean the suite now depends on DB reachability for its strongest guarantee — on a remote dev machine that cannot reach the host's MySQL, only the tuned config protects the run, not the reset. The `spam` thresholds are also a standing piece of environment configuration that must travel with the instance: a fresh Ghost deployment without this block would reintroduce the restrictive defaults. Finally, and most importantly, **this configuration is appropriate only for a controlled test instance — the relaxed `spam` limits and any external brute-table clearing must never be applied to a production Ghost**, where the limiter is a genuine defense against credential-stuffing and email-bombing. Ghost's `defaults.json` on the main branch is the source of truth for the stock values if they ever need to be restored.

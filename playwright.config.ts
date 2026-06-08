@@ -51,6 +51,9 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
 
+  // globalSetup clears Ghost's rate-limit (brute) table before any project runs, so every
+  // run starts from a clean slate (ADR §11). globalTeardown does the final member sweep.
+  globalSetup: './tests/global-setup',
   globalTeardown: './tests/global-teardown',
 
   // Setup projects (Decision 10): the auth specs create the shared session files that the
