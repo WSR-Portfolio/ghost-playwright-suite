@@ -173,13 +173,14 @@ A higher `actionTimeout` means a genuinely hung operation waits 30 seconds rathe
 
 ## 8. Admin 2FA Lockdown and CI Run Cadence
 
-> **Update (see §11):** The `brute`-table reset in global setup (§11) is now the primary
-> defense against cross-run lockouts. Whether it also clears the admin **2FA
-> device-verification code** limiter (the ~30-minute lockdown described below) is a separate
-> question from the login brute limit, and is confirmed by an empirical back-to-back check
-> (§11, Step 5 of the cleanup plan). Until that check passes, `retries: 0` on the auth suite
-> and the run-cadence guidance below remain in force as a fallback; if it passes, both can be
-> retired.
+> **Update (see §11) — RESOLVED:** The admin 2FA device-verification limiter *is* stored in
+> the `brute` table, so the global-setup reset (§11) now clears it before every run. This was
+> confirmed empirically: with the reset active, two cold admin logins minutes apart (a CI run
+> immediately re-run) both completed AU-001 — the exact scenario that previously tripped the
+> ~30-minute lockdown. Consequently **`retries: 0` on the auth suite has been removed** (it
+> inherits the default `retries: 2`), and the **run-cadence rule below is retired**. The
+> brute reset plus the raised `spam.user_login` freeRetries (50) make a retry burst harmless.
+> The text below is retained as the historical rationale from when the limiter was unmanaged.
 
 **Context**
 
