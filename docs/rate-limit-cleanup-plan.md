@@ -6,7 +6,7 @@
 
 **Corrections incorporated (Claude Code review, confirmed by Sonnet):**
 1. `retries: 0` lives in `test.describe.configure()` inside `tests/admin-ui/auth.spec.ts` (~line 54), **not** a `playwright.config.ts` project — Step 5 edits the spec file.
-2. Step 2 uses a dedicated `ghost_brute_reset` user with `GRANT DELETE ON ghost_db.brute` only (least privilege); `DELETE FROM brute`, not `TRUNCATE` (which needs `DROP`).
+2. Step 2 uses a dedicated `brute_reset_user` user with `GRANT DELETE ON ghost_db.brute` only (least privilege); `DELETE FROM brute`, not `TRUNCATE` (which needs `DROP`).
 3. Step 5 (admin-2FA limiter) is the **linchpin**: ADR §8's cadence-rule-obsolete language is held until that check passes; both outcomes documented.
 4. Step 2 includes a `docker compose port mysql 3306` reachability check before wiring credentials.
 5. `globalSetup` fires once before all projects (including the §10 setup projects) — no ordering conflict; documented in ADR §11.
@@ -100,12 +100,12 @@ docker compose exec mysql mysql -u root -p
 
 ```sql
 -- Replace 'strongpassword' with something real; store it in your password manager
-CREATE USER 'ghost_brute_reset'@'%' IDENTIFIED BY 'strongpassword';
-GRANT DELETE ON ghost_db.brute TO 'ghost_brute_reset'@'%';
+CREATE USER 'brute_reset_user'@'%' IDENTIFIED BY 'strongpassword';
+GRANT DELETE ON ghost_db.brute TO 'brute_reset_user'@'%';
 FLUSH PRIVILEGES;
 
 -- Verify
-SHOW GRANTS FOR 'ghost_brute_reset'@'%';
+SHOW GRANTS FOR 'brute_reset_user'@'%';
 ```
 
 > Use `'%'` as the host wildcard here since the runner connects from the ghostbox host, not from inside the Docker network. If you can pin the source IP, do so.
@@ -140,7 +140,7 @@ docker compose port mysql 3306
 | `DB_HOST` | `localhost` or `127.0.0.1` |
 | `DB_PORT` | `3306` |
 | `DB_NAME` | `ghost_db` (your Ghost DB name) |
-| `DB_USER` | `ghost_brute_reset` |
+| `DB_USER` | `brute_reset_user` |
 | `DB_PASSWORD` | the password you set above |
 
 **Local:** Add to `.env` (already gitignored).  
@@ -293,7 +293,7 @@ Create this entry. It should cover:
 - The three `express-brute` buckets (`user_login`, `member_login`, `global_reset`) and their shared `brute` table
 - The `spam` config added to `config.production.json` and reasoning for chosen values
 - The `globalSetup.ts` brute reset and its graceful no-op when DB creds are absent
-- The least-privilege `ghost_brute_reset` user and why the `ghost` user wasn't reused
+- The least-privilege `brute_reset_user` user and why the `ghost` user wasn't reused
 - The globalSetup/setup-projects composition: globalSetup runs before all projects, including the `admin-auth` and `member-auth` setup projects, so auth logins happen on a clean rate-limit slate (no conflict with ADR §10)
 - Explicit note: this configuration is for a test environment only — `freeRetries: 50` should never be used on a production Ghost instance
 
@@ -362,7 +362,7 @@ Either works. Option A keeps parallel progress; Option B is cleaner. Your call.
 
 ```
 Step 1 (you)   →  Edit config.production.json + restart Ghost
-Step 2 (you)   →  Create ghost_brute_reset MySQL user + confirm port reachability + supply creds
+Step 2 (you)   →  Create brute_reset_user MySQL user + confirm port reachability + supply creds
 Step 3 (CC)    →  Add globalSetup.ts + mysql2 + register in config + wire CI secrets [pre-stageable]
 Step 4 (CC)    →  Remove MU-001 self-skip [gate: Steps 1–3]
 Step 5 (CC)    →  Run 2FA empirical check → remove retries:0 from auth.spec.ts if safe [gate: Steps 1–3]
