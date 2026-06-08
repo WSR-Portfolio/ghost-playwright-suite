@@ -8,7 +8,7 @@
  * is driven exclusively by a magic link that Ghost sends to the member's
  * email address.  In production that email goes to a real inbox; in this
  * test environment, Ghost's SMTP is pointed at a Mailpit container running
- * on the local Docker network (http://10.0.4.113:8025).
+ * on the local network (address configured via the MAILPIT_URL env var).
  *
  * Mailpit catches every outbound email and exposes it via a REST API, which
  * means tests can:

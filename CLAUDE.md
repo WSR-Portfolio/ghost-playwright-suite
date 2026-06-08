@@ -7,15 +7,18 @@ This is a Playwright TypeScript test suite for Ghost CMS (v6.43.1), targeting
 https://ghost.wsrportfolio.dev. It is part of a professional QA portfolio (WSR-Portfolio on GitHub)
 demonstrating senior-level test automation skills.
 
-The test target is a self-hosted Ghost instance running on a Synology NAS via Docker, exposed
-through a Cloudflare Tunnel. It is a controlled test environment with no real users.
+The test target is a self-hosted Ghost instance running on a dedicated Linux host (Intel i7,
+16 GB RAM) via Docker, exposed through a Cloudflare Tunnel. It is a controlled test environment
+with no real users. (It previously ran on a low-powered Synology NAS; several ADRs reference
+that earlier hardware as the rationale for environmental accommodations like sequential
+execution and enlarged timeouts.)
 
 ## Stack
 
 - Language: TypeScript
 - Test runner: Playwright
 - Node.js: 20+
-- Auth intercept: Mailpit (local SMTP, http://10.0.4.113:8025)
+- Auth intercept: Mailpit (local SMTP, http://10.0.4.92:8025)
 
 ## Environment Variables
 
@@ -26,7 +29,7 @@ GHOST_ADMIN_API_KEY  — format: {id}:{secret} — used to generate JWT tokens
 GHOST_CONTENT_API_KEY — used as a query parameter, not a header
 GHOST_ADMIN_EMAIL    — admin login email
 GHOST_ADMIN_PASSWORD — admin login password
-MAILPIT_URL          — http://10.0.4.113:8025
+MAILPIT_URL          — http://10.0.4.92:8025
 
 ## Ghost Admin API Authentication — Critical
 
