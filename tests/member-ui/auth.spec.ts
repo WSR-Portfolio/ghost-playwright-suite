@@ -34,9 +34,9 @@
  * query that API within milliseconds of the email being sent — no external mail
  * provider, no inbox access, no polling an external service.
  *
- * Mailpit is reachable only on the local Docker network (http://10.0.4.113:8025),
- * which is why the CI pipeline runs on a self-hosted runner on the same NAS.
- * See the test plan §7 for the full CI architecture rationale.
+ * Mailpit is reachable only on the local network (address via the MAILPIT_URL
+ * env var), which is why the CI pipeline runs on a self-hosted runner co-located
+ * with it. See the test plan §7 for the full CI architecture rationale.
  *
  * =============================================================================
  * WHY THE REAL FLOW IS TESTED INSTEAD OF AN API SESSION WORKAROUND
