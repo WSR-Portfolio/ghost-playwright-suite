@@ -28,7 +28,8 @@ const AUTH_FILE = path.resolve('.auth/admin.json');
  * Retries up to 10 times with 1-second intervals before throwing.
  */
 async function getAdminVerificationCode(mailpit: MailpitHelper, adminEmail: string): Promise<string> {
-  for (let attempt = 0; attempt < 10; attempt++) {
+  // 20 attempts (~20s): under CI load Ghost's SMTP send to Mailpit can lag (ADR §7).
+  for (let attempt = 0; attempt < 20; attempt++) {
     const message = await mailpit.getLatestEmailTo(adminEmail);
     if (message) {
       const source = message.HTML || message.Text || '';
@@ -39,7 +40,7 @@ async function getAdminVerificationCode(mailpit: MailpitHelper, adminEmail: stri
     // Wait 1 second between polls — Mailpit delivery is near-instant on local Docker
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error(`No 6-digit verification code found in Mailpit for ${adminEmail} after 10 attempts`);
+  throw new Error(`No 6-digit verification code found in Mailpit for ${adminEmail} after 20 attempts`);
 }
 
 test.describe('Admin Authentication', () => {
@@ -68,6 +69,15 @@ test.describe('Admin Authentication', () => {
 
     // Ensure the .auth directory exists before trying to write to it
     fs.mkdirSync(path.dirname(AUTH_FILE), { recursive: true });
+
+    // AU-001 does the most work of any test: a full 2FA login with several sequential
+    // navigations. In CI the self-hosted runner is a container on the same NAS as Ghost, so
+    // the runner and Chromium starve Ghost of resources and every step runs far slower than
+    // locally — observed AU-001 ~50s in CI vs ~12s on a dev machine that doesn't load the NAS.
+    // Give this one test a budget well above the 60s project default (ADR §7) so a slow-but-
+    // alive login completes instead of being cut off. retries stay at 0 (ADR §8) so this never
+    // requests more than one 2FA code.
+    test.setTimeout(150_000);
 
     // Fast path: if a recent auth file exists and the session is still valid, reuse it.
     // Ghost rate-limits 2FA verification attempts — triggering a fresh 2FA login on
@@ -105,8 +115,10 @@ test.describe('Admin Authentication', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     // Ghost v6 may redirect to /signin/verify for 2FA before the admin panel.
-    // Wait for either the verify page or any authenticated admin page.
-    await page.waitForURL(/\/ghost\/#\/(signin\/verify|dashboard|analytics|posts|pages)/, { timeout: 15_000 });
+    // Wait for either the verify page or any authenticated admin page. The 45s budget is sized
+    // for the NAS under CI load (ADR §7): the sign-in POST triggers Ghost to generate and send
+    // the 2FA email before redirecting, which is slow when the runner is starving the NAS.
+    await page.waitForURL(/\/ghost\/#\/(signin\/verify|dashboard|analytics|posts|pages)/, { timeout: 45_000 });
 
     if (page.url().includes('/signin/verify')) {
       const code = await getAdminVerificationCode(mailpit, email);
@@ -115,8 +127,9 @@ test.describe('Admin Authentication', () => {
       await page.locator('input').first().click();
       await page.keyboard.type(code);
       await page.getByRole('button', { name: /verify/i }).click();
-      // After 2FA, Ghost redirects to its default landing page (analytics in v6)
-      await page.waitForURL(/\/ghost\/#\/(?!signin)/, { timeout: 15_000 });
+      // After 2FA, Ghost redirects to its default landing page (analytics in v6).
+      // 45s budget for the NAS under CI load (ADR §7), as above.
+      await page.waitForURL(/\/ghost\/#\/(?!signin)/, { timeout: 45_000 });
     }
 
     // Ghost v6 lands on /analytics after login rather than /dashboard — accept either.
