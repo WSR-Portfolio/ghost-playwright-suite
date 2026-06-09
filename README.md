@@ -190,7 +190,7 @@ The following cases reflect deeper Ghost product knowledge and would not be obvi
 
 - Node.js 20+
 - Access to the Ghost test instance (`https://ghost.wsrportfolio.dev`)
-- Access to the Mailpit instance on the LAN (`http://10.0.4.92:8025`) — required for member auth tests
+- Access to the Mailpit instance on the LAN (`http://<mailpit-host>:8025`) — required for member auth tests
 
 ### Setup
 
@@ -216,7 +216,7 @@ The following cases reflect deeper Ghost product knowledge and would not be obvi
    GHOST_CONTENT_API_KEY=<key>
    GHOST_ADMIN_EMAIL=<admin email>
    GHOST_ADMIN_PASSWORD=<admin password>
-   MAILPIT_URL=http://10.0.4.92:8025
+   MAILPIT_URL=http://<mailpit-host>:8025
    ```
 
 ### Commands

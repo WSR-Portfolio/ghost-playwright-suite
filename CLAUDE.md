@@ -18,7 +18,7 @@ execution and enlarged timeouts.)
 - Language: TypeScript
 - Test runner: Playwright
 - Node.js: 20+
-- Auth intercept: Mailpit (local SMTP, http://10.0.4.92:8025)
+- Auth intercept: Mailpit (local SMTP, http://<mailpit-host>:8025)
 
 ## Environment Variables
 
@@ -29,7 +29,7 @@ GHOST_ADMIN_API_KEY  — format: {id}:{secret} — used to generate JWT tokens
 GHOST_CONTENT_API_KEY — used as a query parameter, not a header
 GHOST_ADMIN_EMAIL    — admin login email
 GHOST_ADMIN_PASSWORD — admin login password
-MAILPIT_URL          — http://10.0.4.92:8025
+MAILPIT_URL          — http://<mailpit-host>:8025
 
 ## Ghost Admin API Authentication — Critical
 
