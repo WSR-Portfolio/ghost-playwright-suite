@@ -78,7 +78,7 @@ export default defineConfig({
       // NOT block these ~80 tests — member-auth is deliberately not a dependency here.
       name: 'main',
       testMatch: /(api|admin-ui)[\\/].*\.spec\.ts$/,
-      testIgnore: /admin-ui[\\/]auth\.spec\.ts$/,
+      testIgnore: [/admin-ui[\\/]auth\.spec\.ts$/, /api[\\/]rate-limit\.spec\.ts$/],
       dependencies: ['admin-auth'],
       use: { ...devices['Desktop Chrome'] },
     },
@@ -90,6 +90,16 @@ export default defineConfig({
       testMatch: /member-ui[\\/].*\.spec\.ts$/,
       testIgnore: /member-ui[\\/]auth\.spec\.ts$/,
       dependencies: ['member-auth'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // Rate-limit security test (RL-001) deliberately trips Ghost's per-IP brute limiter,
+      // so it must run LAST and ALONE — depending on both test projects guarantees it never
+      // executes concurrently with a sign-in test (which shares the global_reset bucket).
+      // The spec resets the brute table before and after itself (ADR §11).
+      name: 'rate-limit',
+      testMatch: /api[\\/]rate-limit\.spec\.ts$/,
+      dependencies: ['main', 'member'],
       use: { ...devices['Desktop Chrome'] },
     },
   ],

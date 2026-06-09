@@ -305,6 +305,14 @@ A cloud-based runner would provide stronger isolation between the test executor 
 | MU-009 | Newsletter | Member can unsubscribe from newsletter via account settings | Happy path |
 | MU-010 | Auth | Logout clears session; members-only content is no longer accessible | Happy path |
 
+### 8.5 Security — Rate Limiting
+
+| ID | Area | Test Case | Type |
+|---|---|---|---|
+| RL-001 | Rate limiting | Member sign-in limiter (`member_login`) returns 429 after the configured `freeRetries` threshold | Security boundary |
+
+This test deliberately trips Ghost's per-IP brute-force limiter and asserts it engages — the inverse of the rest of the suite, which is built to avoid it. It is isolated in its own Playwright project (runs last, alone) and resets the `brute` table before and after itself so it never disturbs the other tests. See `docs/decisions.md` §11.
+
 ---
 
 ## 9. Non-Obvious Test Cases — Reviewer Notes
