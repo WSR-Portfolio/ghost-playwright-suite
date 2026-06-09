@@ -35,7 +35,7 @@ The test target is a self-hosted Ghost instance (v6.43.1) running in Docker on a
 
 ### CI: Self-Hosted Runner
 
-Tests run on a self-hosted GitHub Actions runner deployed as a Docker container on the same NAS that hosts Ghost.
+Tests run on a self-hosted GitHub Actions runner deployed as a Docker container on the same host as Ghost (a dedicated Intel i7 / 16 GB machine; the instance was previously on a low-powered NAS).
 
 **Why not a GitHub-hosted runner?** The member authentication tests require access to Mailpit, which runs on the LAN and is intentionally not exposed to the internet — magic link tokens are single-use authentication credentials and should not transit public infrastructure. Connecting a GitHub-hosted runner via Tailscale was evaluated and rejected: introducing an ephemeral external device into the tailnet creates an attack surface that is not justified for a portfolio project with no real user data.
 
@@ -47,7 +47,8 @@ Tests run on a self-hosted GitHub Actions runner deployed as a Docker container 
 
 ```
 ghost-playwright-suite/
-├── playwright.config.ts              # Playwright configuration (baseURL, workers, reporters, teardown)
+├── playwright.config.ts              # Playwright config (baseURL, parallel workers, setup-project deps, timeouts)
+├── .env.example                      # Template of required env vars (no secrets; copy to .env)
 ├── .github/
 │   └── workflows/
 │       └── playwright.yml            # GitHub Actions CI workflow (self-hosted runner)
@@ -55,7 +56,8 @@ ghost-playwright-suite/
 │   ├── fixtures/
 │   │   ├── admin-api.fixture.ts      # AdminApiHelper class — Ghost Admin API calls and Playwright fixture
 │   │   ├── mailpit.fixture.ts        # MailpitHelper class — email retrieval and magic link extraction
-│   │   └── test-data.ts              # Shared constants and generateTestEmail() helper
+│   │   ├── test-data.ts              # Shared constants and generateTestEmail() helper
+│   │   └── index.ts                  # Single import point for the custom test/expect fixtures
 │   ├── api/
 │   │   ├── admin-auth.spec.ts        # AA-001–003: API key authentication and rejection
 │   │   ├── admin-posts.spec.ts       # AA-004–016: Post CRUD, publish, schedule, visibility, pagination
@@ -67,7 +69,8 @@ ghost-playwright-suite/
 │   │   ├── admin-webhooks.spec.ts    # AA-035–037: Webhook CRUD
 │   │   ├── admin-tiers.spec.ts       # AA-038: Default free tier presence
 │   │   ├── admin-errors.spec.ts      # AA-039: Malformed request body handling
-│   │   └── content-api.spec.ts       # CA-001–016: Content API coverage including security boundary
+│   │   ├── content-api.spec.ts       # CA-001–016: Content API coverage including security boundary
+│   │   └── rate-limit.spec.ts        # RL-001: verifies the member sign-in rate limiter engages
 │   ├── admin-ui/
 │   │   ├── auth.spec.ts              # AU-001–003: Admin login, failure state, session persistence
 │   │   ├── posts.spec.ts             # AU-004–016: Post creation, editing, publish/unpublish, scheduling
@@ -79,10 +82,11 @@ ghost-playwright-suite/
 │   │   ├── registration.spec.ts      # MU-001–003: Signup portal, validation, duplicate detection
 │   │   ├── auth.spec.ts              # MU-004: Full magic link authentication flow via Mailpit
 │   │   └── content-access.spec.ts    # MU-005–010: Gated content, public content, logout
+│   ├── global-setup.ts               # Runs before all tests — resets Ghost's rate-limit (brute) table
 │   └── global-teardown.ts            # Runs after all tests — deletes all members and Mailpit messages
 └── docs/
     ├── test-plan.md                  # Full test plan with inventory, scope, and rationale
-    └── decisions.md                  # Architecture decision records
+    └── decisions.md                  # Architecture decision records (ADRs 1–11)
 ```
 
 ---
@@ -111,7 +115,8 @@ ghost-playwright-suite/
 | Member UI — Registration | `registration.spec.ts` | 3 | Happy path, negative |
 | Member UI — Auth | `auth.spec.ts` | 1 | Happy path |
 | Member UI — Content access | `content-access.spec.ts` | 6 | Happy path, security boundary |
-| **Total** | | **92** | |
+| Security — Rate limiting | `rate-limit.spec.ts` | 1 | Security boundary |
+| **Total** | | **93** | |
 
 For the full test case inventory with IDs and descriptions, see [`docs/test-plan.md`](docs/test-plan.md).
 
@@ -143,7 +148,7 @@ Every Admin API request uses the header `Authorization: Ghost {token}`. Using th
 
 Ghost members have no passwords. Every authentication flow — sign-up confirmation, sign-in — uses a magic link sent to the member's email address. Testing this flow end-to-end requires intercepting that email.
 
-Mailpit runs as an additional container in the Ghost Docker stack on the NAS. Ghost's SMTP is configured to route all outbound email through Mailpit. During member tests, the suite:
+Mailpit runs as an additional container in the Ghost Docker stack on the same host. Ghost's SMTP is configured to route all outbound email through Mailpit. During member tests, the suite:
 
 1. Triggers a magic link request via the Ghost membership portal
 2. Queries the Mailpit API to retrieve the email addressed to the test recipient
@@ -159,6 +164,14 @@ The `AdminApiHelper` class used in the API test specs is also imported directly 
 ### Global Member Teardown
 
 Member registration is left open on this instance — it must be, to test the signup portal. Global teardown deletes all members unconditionally after every test run. Any real person who registers during a run loses their account at the end of the next CI run. This is documented behavior, not a bug. The instance has no real users.
+
+### Parallel Execution with Setup-Project Dependencies
+
+The suite runs with `workers: 4` and `fullyParallel: false` — spec files run in parallel while tests within a file stay ordered. Two Playwright *setup projects* run first and create the sessions the rest of the suite restores via `storageState`: `admin-auth` (AU-001–003 → `.auth/admin.json`) and `member-auth` (MU-004 magic-link login → `.auth/member.json`). The `main` (API + Admin UI) and `member` projects declare these as dependencies, so session creation is guaranteed before the parallel tests run — on a cold CI checkout as much as locally. `main` depends only on `admin-auth`, so a member-side issue can never block the API/Admin-UI tests. Member deletion is owned solely by global teardown to avoid one spec wiping another's state mid-run.
+
+### Rate-Limit Configuration and Brute-Table Reset
+
+Ghost rate-limits authentication via `express-brute` (admin login, member sign-in, and a per-IP aggregate), with state stored in a MySQL `brute` table. Rather than coding around lockouts, the test instance raises the `spam` thresholds for legitimate test volume, and a `globalSetup` clears the `brute` table before every run — using a DB user scoped to `DELETE` on that one table — so each run starts from a clean slate. The limiter is not disabled: **RL-001** deliberately trips it and asserts it still returns `429` after the configured threshold. The suite therefore both avoids false lockouts and proves the guardrail still defends against abuse. *(This relaxed configuration is for the test instance only and must never be applied to a production Ghost.)*
 
 For full rationale on all design decisions, see [`docs/decisions.md`](docs/decisions.md).
 
@@ -181,6 +194,8 @@ The following cases reflect deeper Ghost product knowledge and would not be obvi
 - **MU-006 — Unauthenticated access to members-only content (UI):** Explicitly verifies the frontend access boundary independently of CA-004. Both layers must enforce the boundary. A passing CA-004 does not guarantee the UI is also enforcing it.
 
 - **MU-004 — Magic link auth via Mailpit:** Ghost members do not use passwords. Testers unfamiliar with Ghost will look for a password login flow and find none. Rather than working around this with an API session injection, the suite exercises the real authentication chain from email request through browser navigation.
+
+- **RL-001 — Rate limiter engages at the configured threshold:** The whole suite is built to *avoid* Ghost's brute-force limiter; this one test does the opposite — it deliberately drives the member sign-in endpoint past `freeRetries` and asserts a `429`. Because the relaxed `spam` config is a deliberate weakening of a security control, this proves the control still fires. It runs isolated (its own project, last and alone) and resets the `brute` table before and after itself so it never disturbs the other tests.
 
 ---
 
@@ -208,7 +223,13 @@ The following cases reflect deeper Ghost product knowledge and would not be obvi
    npx playwright install --with-deps chromium
    ```
 
-3. Create a `.env` file at the repo root:
+3. Create your `.env` from the template and fill in real values (`.env` is gitignored — never commit it):
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Required:
 
    ```
    GHOST_URL=https://ghost.wsrportfolio.dev
@@ -217,6 +238,16 @@ The following cases reflect deeper Ghost product knowledge and would not be obvi
    GHOST_ADMIN_EMAIL=<admin email>
    GHOST_ADMIN_PASSWORD=<admin password>
    MAILPIT_URL=http://<mailpit-host>:8025
+   ```
+
+   Optional — DB credentials for the rate-limit reset in `global-setup.ts` (use a user scoped to `DELETE` on the `brute` table). If omitted, the reset no-ops with a warning and the suite still runs (the tuned `spam` config protects a single run); RL-001 skips when they're absent or the DB is unreachable:
+
+   ```
+   DB_HOST=<mysql-host>
+   DB_PORT=3306
+   DB_NAME=<ghost-db-name>
+   DB_USER=<brute-reset-user>
+   DB_PASSWORD=<brute-reset-password>
    ```
 
 ### Commands
@@ -234,17 +265,17 @@ The following cases reflect deeper Ghost product knowledge and would not be obvi
 
 ## CI/CD
 
-The GitHub Actions workflow at `.github/workflows/playwright.yml` triggers on push and pull request to `main`. It runs on a self-hosted runner deployed as a Docker container on the same NAS that hosts the Ghost test target.
+The GitHub Actions workflow at `.github/workflows/playwright.yml` triggers on push and pull request to `main`. It runs on a self-hosted runner deployed as a Docker container on the same host as the Ghost test target.
 
 The workflow:
 1. Checks out the repository
 2. Sets up Node.js 20 with npm cache
 3. Installs dependencies (`npm ci`)
 4. Installs the Chromium browser (`npx playwright install --with-deps chromium`)
-5. Runs the full test suite with all secrets injected from GitHub repository secrets
+5. Runs the full suite in parallel (`workers: 4`) with all secrets injected from GitHub repository secrets — Playwright's global setup resets Ghost's rate-limit (`brute`) table before the tests start
 6. Uploads the Playwright HTML report as a workflow artifact (always, including on failure) with 30-day retention
 
-Secrets required in the repository settings: `GHOST_URL`, `GHOST_ADMIN_API_KEY`, `GHOST_CONTENT_API_KEY`, `GHOST_ADMIN_EMAIL`, `GHOST_ADMIN_PASSWORD`, `MAILPIT_URL`.
+Secrets required in the repository settings: `GHOST_URL`, `GHOST_ADMIN_API_KEY`, `GHOST_CONTENT_API_KEY`, `GHOST_ADMIN_EMAIL`, `GHOST_ADMIN_PASSWORD`, `MAILPIT_URL`. Plus, for the brute-table reset and RL-001: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` (a DB user scoped to `DELETE` on the `brute` table).
 
 For the full rationale on the self-hosted runner decision, see [Test Architecture](#ci-self-hosted-runner) above and [`docs/decisions.md`](docs/decisions.md).
 
