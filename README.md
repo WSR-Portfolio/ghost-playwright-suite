@@ -28,7 +28,7 @@ The test target is a self-hosted Ghost instance (v6.43.1) running in Docker on a
 ### Stack
 
 - **Test runner:** [Playwright](https://playwright.dev) (TypeScript)
-- **Node.js:** 20+
+- **Node.js:** 24 (CI runtime; 20+ works locally)
 - **Auth intercept:** [Mailpit](https://mailpit.axllent.org) — local SMTP service that captures Ghost magic link emails
 - **JWT generation:** `jsonwebtoken` — required for Ghost Admin API authentication
 - **CI:** GitHub Actions on a self-hosted runner
@@ -203,7 +203,7 @@ The following cases reflect deeper Ghost product knowledge and would not be obvi
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 24 (CI uses 24; 20+ works locally)
 - Access to the Ghost test instance (`https://ghost.wsrportfolio.dev`)
 - Access to the Mailpit instance on the LAN (`http://<mailpit-host>:8025`) — required for member auth tests
 
@@ -269,7 +269,7 @@ The GitHub Actions workflow at `.github/workflows/playwright.yml` triggers on pu
 
 The workflow:
 1. Checks out the repository
-2. Sets up Node.js 20 with npm cache
+2. Sets up Node.js 24 with npm cache
 3. Installs dependencies (`npm ci`)
 4. Installs the Chromium browser (`npx playwright install --with-deps chromium`)
 5. Runs the full suite in parallel (`workers: 4`) with all secrets injected from GitHub repository secrets — Playwright's global setup resets Ghost's rate-limit (`brute`) table before the tests start

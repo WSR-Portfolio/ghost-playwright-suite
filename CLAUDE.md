@@ -17,7 +17,7 @@ execution and enlarged timeouts.)
 
 - Language: TypeScript
 - Test runner: Playwright
-- Node.js: 20+
+- Node.js: 24 (CI pins 24; 20+ works locally)
 - Auth intercept: Mailpit (local SMTP, http://<mailpit-host>:8025)
 
 ## Environment Variables
