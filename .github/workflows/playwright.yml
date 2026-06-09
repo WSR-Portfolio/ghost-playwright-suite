@@ -38,6 +38,15 @@ jobs:
   test:
     runs-on: self-hosted
 
+    # Force JS-based actions (checkout/setup-node/upload-artifact) onto Node.js 24 ahead of
+    # GitHub's 2026-06-16 forced switch. checkout@v5 and setup-node@v5 already declare node24;
+    # upload-artifact@v5 still ships node20, so this override moves it (and any future action)
+    # to node24 on the self-hosted runner now, letting us validate before the default flips.
+    # Remove once all actions natively declare node24. (Unrelated to the test runtime below,
+    # which setup-node pins separately.)
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
