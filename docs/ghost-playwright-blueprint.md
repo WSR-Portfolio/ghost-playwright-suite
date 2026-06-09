@@ -55,7 +55,7 @@ GHOST_ADMIN_API_KEY=your_admin_api_key_here
 GHOST_CONTENT_API_KEY=your_content_api_key_here
 GHOST_ADMIN_EMAIL=your_admin_email_here
 GHOST_ADMIN_PASSWORD=your_admin_password_here
-MAILPIT_URL=http://10.0.4.113:8025
+MAILPIT_URL=http://<mailpit-host>:8025
 ```
 
 ### 4. Update `.gitignore`
@@ -586,7 +586,7 @@ We are building a Playwright TypeScript test suite for Ghost CMS targeting https
 Read CLAUDE.md, docs/test-plan.md, and docs/ghost-playwright-blueprint.md before doing anything else.
 We are in Phase 5: writing Member UI persona test specs.
 All tests go in tests/member-ui/. Ghost members authenticate via magic links only — there are no passwords.
-Mailpit (http://10.0.4.113:8025) intercepts outbound emails from Ghost on the local Docker network.
+Mailpit (http://<mailpit-host>:8025) intercepts outbound emails from Ghost on the local Docker network.
 The Mailpit fixture is in tests/fixtures/mailpit.fixture.ts. Import from there.
 ```
 
@@ -833,7 +833,7 @@ through a Cloudflare Tunnel. It is a controlled test environment with no real us
 - Language: TypeScript
 - Test runner: Playwright
 - Node.js: 20+
-- Auth intercept: Mailpit (local SMTP, http://10.0.4.113:8025)
+- Auth intercept: Mailpit (local SMTP, http://<mailpit-host>:8025)
 
 ## Environment Variables
 
@@ -844,7 +844,7 @@ GHOST_ADMIN_API_KEY  — format: {id}:{secret} — used to generate JWT tokens
 GHOST_CONTENT_API_KEY — used as a query parameter, not a header
 GHOST_ADMIN_EMAIL    — admin login email
 GHOST_ADMIN_PASSWORD — admin login password
-MAILPIT_URL          — http://10.0.4.113:8025
+MAILPIT_URL          — http://<mailpit-host>:8025
 
 ## Ghost Admin API Authentication — Critical
 
