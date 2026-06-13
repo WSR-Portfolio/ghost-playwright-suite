@@ -1,7 +1,7 @@
 # Ghost CMS — QA Test Plan
 **Project:** WSR QA Portfolio — Ghost Test Suite  
 **Target:** https://ghost.wsrportfolio.dev  
-**Author:** Scott Roberts  
+**Author:** WSR-Portfolio  
 **Version:** 1.2  
 **Date:** 2026-06-05  
 
