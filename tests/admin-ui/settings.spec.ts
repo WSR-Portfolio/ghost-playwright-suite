@@ -29,8 +29,8 @@ test.describe('Admin UI — Settings', () => {
   test('AU-027: add a custom navigation item; persists after save; cleaned up after test', async ({ page }) => {
     // The navigation editor dialog lists nav items with textbox inputs whose ARIA
     // accessible names are "Label" and "URL" (not placeholder attributes). These are
-    // declared before the helper below because the helper waits on them to decide
-    // whether the editor is actually open.
+    // declared before the helpers below because both use them as the signal for whether
+    // the editor has finished opening or closing.
     const labelInputs = page.getByRole('textbox', { name: 'Label' });
     const urlInputs = page.getByRole('textbox', { name: 'URL' });
 
@@ -47,21 +47,29 @@ test.describe('Admin UI — Settings', () => {
       return labelInputs.evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
     }
 
-    // Helper: open the navigation editor dialog from the settings panel.
-    // Always navigates to /ghost/#/settings first — Ghost encodes the open modal in the
-    // URL, so a reload or re-entry can restore the modal overlay, which would block all
-    // subsequent clicks. The goto resets this state.
+    /**
+     * Helper: open the navigation editor dialog from the settings panel.
+     *
+     * Ghost encodes the open modal in the URL, so returning to /ghost/#/settings after a
+     * reload briefly *restores* the editor and then tears it down as client-side routing
+     * settles. That leaves a window in which the Label inputs are present and readable
+     * but about to vanish — reads succeed and the next action times out against a closed
+     * dialog. Any "is it already open?" shortcut is therefore unsafe on 6.57.1: it cannot
+     * distinguish a restored-and-doomed modal from a real one.
+     *
+     * So this helper never reuses restored state. It lands on a non-modal route first to
+     * discard it, asserts the editor is genuinely closed, then opens it by the explicit
+     * click path — making every entry identical whether or not a reload preceded it.
+     */
     async function openNavEditor(): Promise<void> {
+      await page.goto('/ghost/#/posts');
+      await page.waitForLoadState('networkidle');
       await page.goto('/ghost/#/settings');
       await page.waitForLoadState('networkidle');
-      // If Ghost restored the editor from the URL, it is already open. Probe the Label
-      // textbox itself rather than `#modal-backdrop`: as of Ghost 6.57.1 that backdrop
-      // can be present while the editor is closed, so keying off it made this helper
-      // return without opening anything, and every later read then timed out.
-      // isVisible() polls once and does not wait, so a closed editor costs nothing here.
-      if (await labelInputs.first().isVisible()) {
-        return;
-      }
+      // Settle point: the settings index has no Label inputs, so this retries until any
+      // restored modal has finished being dismissed. Without it the click below can race
+      // the teardown and land on a backdrop.
+      await expect(labelInputs).toHaveCount(0);
       // The Navigation card has data-testid="navigation". Click it to reveal the card
       // panel with the "Customize" button. Scoping to the card avoids strict-mode
       // violations with the modal's own "Navigation" heading.
