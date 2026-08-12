@@ -3,7 +3,7 @@
 
 ## Project Context
 
-This is a Playwright TypeScript test suite for Ghost CMS (v6.43.1), targeting
+This is a Playwright TypeScript test suite for Ghost CMS (v6.57.1), targeting
 https://ghost.wsrportfolio.dev. It is part of a professional QA portfolio (WSR-Portfolio on GitHub)
 demonstrating senior-level test automation skills.
 

@@ -10,7 +10,7 @@ Ghost is a Node.js publishing platform with a publishing-focused feature set: po
 
 Ghost was chosen as a test target because it offers genuine complexity without artificial setup. The Admin API uses JWT authentication that requires non-trivial token generation. Member authentication uses magic links exclusively — there are no passwords — which requires an SMTP intercept service to test end-to-end. Content visibility is enforced at both the API and UI layers independently, creating meaningful security boundary tests. These are the kinds of challenges that produce interesting test design decisions.
 
-The test target is a self-hosted Ghost instance (v6.43.1) running in Docker on a dedicated Linux host (Intel i7, 16 GB RAM), exposed through a Cloudflare Tunnel. It is a controlled environment with no real users.
+The test target is a self-hosted Ghost instance (v6.57.1) running in Docker on a dedicated Linux host (Intel i7, 16 GB RAM), exposed through a Cloudflare Tunnel. It is a controlled environment with no real users.
 
 ---
 

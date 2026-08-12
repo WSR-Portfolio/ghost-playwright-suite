@@ -21,8 +21,8 @@ Ghost is a Node.js-based open source CMS with a publishing-focused feature set: 
 |---|---|
 | Application | Ghost CMS (self-hosted) |
 | URL | https://ghost.wsrportfolio.dev |
-| Hosting | Docker on Synology NAS, exposed via Cloudflare Tunnel |
-| Ghost Version | 6.43.1 |
+| Hosting | Docker on a dedicated Linux host (Intel i7, 16 GB RAM), exposed via Cloudflare Tunnel |
+| Ghost Version | 6.57.1 |
 | Admin API version | v5 |
 | Content API version | v5 |
 
