@@ -49,6 +49,27 @@ async function resetBruteTable(): Promise<void> {
   }
 }
 
+/**
+ * Fetch a members integrity token.
+ *
+ * As of Ghost 6.57.1, POST /members/api/send-magic-link/ rejects any request without an
+ * `integrityToken` with `400 BadRequestError: The request could not be understood.` — the
+ * limiter is never reached, so a broken guardrail would look identical to a working one.
+ * Portal fetches this token itself, which is why the browser-driven member tests were
+ * unaffected and only this direct-API spec broke.
+ *
+ * The token is reusable within its validity window (verified: three consecutive 201s from
+ * one token), so the loop below fetches once and only refreshes if a token-shaped rejection
+ * comes back — avoiding 65 extra requests against an endpoint with its own protections.
+ */
+async function fetchIntegrityToken(
+  request: import('@playwright/test').APIRequestContext,
+): Promise<string> {
+  const res = await request.get(`${GHOST_URL}/members/api/integrity-token/`);
+  expect(res.status(), 'integrity token endpoint should return 200').toBe(200);
+  return (await res.text()).trim();
+}
+
 test.describe('Security — Rate Limiting', () => {
   // Only run where we can undo the lockout afterwards.
   test.skip(!hasDbCreds, 'Requires DB access to reset the brute table — skipped without DB_* creds');
@@ -70,14 +91,32 @@ test.describe('Security — Rate Limiting', () => {
     let lockedBody: unknown = null;
     let lastStatus = -1;
 
+    // Required by Ghost 6.57.1; see fetchIntegrityToken above.
+    let integrityToken = await fetchIntegrityToken(request);
+
     try {
       for (let i = 1; i <= MAX_ATTEMPTS; i++) {
         // A *different* email each time — Ghost's limiter counts "too many different
         // sign-in attempts" per IP, which is exactly the abuse pattern it defends against.
-        const res = await request.post(`${GHOST_URL}/members/api/send-magic-link/`, {
-          headers: { 'Content-Type': 'application/json' },
-          data: { email: generateTestEmail(`rl-001-${i}`), emailType: 'signin' },
-        });
+        const sendSignIn = () =>
+          request.post(`${GHOST_URL}/members/api/send-magic-link/`, {
+            headers: { 'Content-Type': 'application/json' },
+            data: {
+              email: generateTestEmail(`rl-001-${i}`),
+              emailType: 'signin',
+              integrityToken,
+            },
+          });
+
+        let res = await sendSignIn();
+        // A 400 here means the token expired mid-loop, not that the limiter engaged (a
+        // lockout is a 429). Refresh once and retry so a long run cannot end up asserting
+        // against a stale token instead of the limiter.
+        if (res.status() === 400) {
+          integrityToken = await fetchIntegrityToken(request);
+          res = await sendSignIn();
+        }
+
         lastStatus = res.status();
         if (res.status() === 429) {
           lockedAt = i;
