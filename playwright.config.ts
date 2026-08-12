@@ -68,8 +68,23 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
+      // Depends on admin-auth purely to serialise the two sign-in flows, not because it
+      // needs the admin session. Admin login (/ghost/api/admin/session) and member
+      // magic-link (/members/api/send-magic-link/) both write to Ghost's shared `brute`
+      // table via the same spam-prevention middleware. Run as sibling setup projects they
+      // start concurrently, and because globalSetup empties `brute` immediately beforehand,
+      // they race to insert into a freshly-empty table — InnoDB gap locking then produces
+      // `ER_LOCK_DEADLOCK`, Ghost returns 500 from send-magic-link, and MU-004 fails with
+      // Portal's generic "Failed to log in" and an empty Mailpit (observed 2026-08-12,
+      // three attempts in a row). This is the same shared-bucket contention the rate-limit
+      // project below already guards against; these two just went unnoticed.
+      //
+      // Trade-off: an admin-auth failure now also skips member-auth and its dependants.
+      // That is the inverse of Decision 9's isolation (a *member* limiter trip must never
+      // block the API/admin suite), which the `main` project still preserves.
       name: 'member-auth',
       testMatch: /member-ui[\\/]auth\.spec\.ts$/,
+      dependencies: ['admin-auth'],
       use: { ...devices['Desktop Chrome'] },
     },
     {
