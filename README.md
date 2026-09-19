@@ -292,3 +292,5 @@ For the full rationale on the self-hosted runner decision, see [Test Architectur
 | Offers (discount codes) | A Stripe-dependent feature. Excluded for the same reason as paid tiers. |
 | ActivityPub / Bluesky federation | Ghost v6 social federation features require external social accounts and may not be stable on this instance version. Out of scope. |
 | Admin mobile responsiveness | The Ghost admin panel is not a mobile-first surface. Testing it would add significant complexity for low portfolio value. |
+
+<!-- CI runner verified 2026-09-19 after tunnel/PAT rotation -->
